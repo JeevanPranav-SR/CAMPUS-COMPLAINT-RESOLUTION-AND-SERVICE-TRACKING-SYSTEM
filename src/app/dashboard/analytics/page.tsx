@@ -2,93 +2,156 @@
 
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Card, EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
+import { api } from "@/lib/client";
 import { CATEGORIES, STATUS_META, type Status } from "@/lib/constants";
 import type { StatsPayload } from "@/lib/types";
 
 export default function AnalyticsPage() {
   const [stats, setStats] = useState<StatsPayload | null>(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/stats")
-      .then((res) => res.json())
-      .then(setStats);
+    api<StatsPayload>("/api/stats")
+      .then(setStats)
+      .catch((err: Error) => setError(err.message));
   }, []);
 
-  if (!stats) return <p className="text-slate-400">Computing campus telemetry…</p>;
+  if (error) return <ErrorState message={error} />;
+  if (!stats) return <Skeleton className="h-96" />;
 
-  const categoryData = CATEGORIES.map((item) => ({
-    name: item.label,
-    count: stats.byCategory[item.id] ?? 0,
-  })).filter((item) => item.count > 0);
-
-  const statusData = Object.entries(stats.byStatus).map(([status, count]) => ({
-    name: STATUS_META[status as Status]?.label ?? status,
-    count,
-  }));
+  const categoryData = CATEGORIES.map((item) => ({ name: item.label, count: stats.byCategory[item.id] ?? 0 })).filter((item) => item.count);
+  const statusData = Object.entries(stats.byStatus).map(([status, count]) => ({ name: STATUS_META[status as Status]?.label ?? status, count }));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-300">Intelligence</p>
-        <h1 className="font-display text-4xl">Service analytics</h1>
-      </div>
-      <section className="grid gap-3 md:grid-cols-4">
+    <div>
+      <PageHeader title="Analytics" description="Operational metrics from live complaint data." />
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ["Total tickets", stats.totals.all],
+          ["Total complaints", stats.totals.all],
           ["Open", stats.totals.open],
-          ["Closed / resolved", stats.totals.resolved],
-          ["Mean close time", `${stats.totals.avgResolution}h`],
+          ["Resolved", stats.totals.resolved],
+          ["Overdue", stats.totals.breached],
+          ["SLA compliance", `${stats.totals.slaCompliance}%`],
+          ["Avg resolution", `${stats.totals.avgResolution}h`],
         ].map(([label, value]) => (
-          <article key={label} className="glass rounded-3xl p-5">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
-            <p className="mt-2 font-display text-4xl">{value}</p>
-          </article>
+          <Card key={label}>
+            <p className="text-xs text-[var(--muted)]">{label}</p>
+            <p className="mt-2 text-2xl font-semibold">{value}</p>
+          </Card>
         ))}
       </section>
-      <section className="grid gap-6 lg:grid-cols-2">
-        <article className="glass rounded-[28px] p-5">
-          <h2 className="font-display text-2xl">By service category</h2>
-          <div className="mt-4 h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={categoryData}>
-                <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 10 }} interval={0} angle={-18} height={70} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: "#0b1220", border: "1px solid rgba(255,255,255,0.1)" }} />
-                <Bar dataKey="count" fill="#22d3ee" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-        <article className="glass rounded-[28px] p-5">
-          <h2 className="font-display text-2xl">Pipeline</h2>
-          <div className="mt-4 h-72">
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="text-sm font-semibold">Complaints by category</h2>
+          <p className="text-xs text-[var(--muted)]">Where campus services are failing most often.</p>
+          {categoryData.length === 0 ? (
+            <EmptyState title="Not enough data" description="Not enough data to display this metric." />
+          ) : (
+            <div className="mt-4 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={categoryData}>
+                  <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-20} height={70} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#16345a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Pipeline</h2>
+          <p className="text-xs text-[var(--muted)]">Current distribution across the lifecycle.</p>
+          <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={statusData}>
-                <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: "#0b1220", border: "1px solid rgba(255,255,255,0.1)" }} />
-                <Bar dataKey="count" fill="#fb7185" radius={[8, 8, 0, 0]} />
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </article>
-      </section>
-      <article className="glass rounded-[28px] p-5">
-        <h2 className="font-display text-2xl">Campus hotspots</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {stats.hotspots.map((spot, index) => (
-            <div key={spot.name} className="flex items-center justify-between rounded-2xl border border-white/10 px-4 py-3">
-              <div>
-                <p className="text-xs text-slate-500">#{index + 1}</p>
-                <p>{spot.name}</p>
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Complaints by priority</h2>
+          <p className="text-xs text-[var(--muted)]">How urgent the current caseload is.</p>
+          <div className="mt-4 h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={Object.entries(stats.byPriority).map(([name, count]) => ({ name, count }))}>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#b45309" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Complaints over time</h2>
+          <p className="text-xs text-[var(--muted)]">Last 14 days of submissions.</p>
+          <div className="mt-4 h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.byDay}>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#0f766e" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Location hotspots</h2>
+          <p className="text-xs text-[var(--muted)]">Open volume by facility.</p>
+          <div className="mt-3 space-y-2">
+            {stats.hotspots.map((spot) => (
+              <div key={spot.id} className="flex items-center justify-between rounded-md border border-[var(--border)] px-3 py-2 text-sm">
+                <div>
+                  <p className="font-medium">{spot.name}</p>
+                  <p className="text-xs text-[var(--muted)]">{spot.open} open · {spot.overdue} overdue · {spot.high} high</p>
+                </div>
+                <p className="font-semibold">{spot.count}</p>
               </div>
-              <p className="font-display text-2xl text-cyan-300">{spot.count}</p>
-            </div>
-          ))}
+            ))}
+          </div>
+        </Card>
+      </section>
+      <section className="mt-6">
+        <h2 className="text-base font-semibold">Staff workload</h2>
+        <p className="text-sm text-[var(--muted)]">Identify overloaded field staff before SLA breaches pile up.</p>
+        <div className="mt-3 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="bg-[var(--bg)] text-xs text-[var(--muted)]">
+              <tr>
+                {["Staff", "Department", "Assigned", "In progress", "Resolved", "Overdue", "Avg hours"].map((col) => (
+                  <th key={col} className="px-4 py-2 font-medium">
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {stats.workload.map((person) => (
+                <tr key={person.id} className="border-t border-[var(--border)]">
+                  <td className="px-4 py-3 font-medium">{person.name}</td>
+                  <td className="px-4 py-3 text-[var(--muted)]">{person.department}</td>
+                  <td className="px-4 py-3">{person.assigned}</td>
+                  <td className="px-4 py-3">{person.inProgress}</td>
+                  <td className="px-4 py-3">{person.resolved}</td>
+                  <td className="px-4 py-3">{person.overdue}</td>
+                  <td className="px-4 py-3">{person.avgHours}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </article>
+      </section>
     </div>
   );
 }

@@ -17,37 +17,57 @@ model User {
   hostel       String?
   registerNo   String?
   phone        String?
+  notifyInApp  Boolean  @default(true)
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
-  reported  Complaint[]      @relation("Reporter")
-  assigned  Complaint[]      @relation("Assignee")
-  events    TimelineEvent[]
+  reported      Complaint[]      @relation("Reporter")
+  assigned      Complaint[]      @relation("Assignee")
+  events        TimelineEvent[]
+  comments      Comment[]
+  notifications Notification[]
 }
 
 model Complaint {
-  id          String    @id @default(cuid())
-  ticketNo    String    @unique
-  title       String
-  description String
-  category    String
-  priority    String
-  status      String
-  locationId  String
-  lat         Float
-  lng         Float
-  landmark    String?
-  reporterId  String
-  assigneeId  String?
-  slaHours    Int
-  dueAt       DateTime
-  resolvedAt  DateTime?
-  rating      Int?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  ticketNo        String    @unique
+  title           String
+  description     String
+  category        String
+  priority        String
+  status          String
+  locationId      String
+  lat             Float
+  lng             Float
+  landmark        String?
+  evidence        String?
+  reporterId      String
+  assigneeId      String?
+  slaHours        Int
+  dueAt           DateTime
+  acknowledgedAt  DateTime?
+  assignedAt      DateTime?
+  resolvedAt      DateTime?
+  closedAt        DateTime?
+  reopenCount     Int       @default(0)
+  rating          Int?
+  ratingComment   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
 
-  reporter User             @relation("Reporter", fields: [reporterId], references: [id])
-  assignee User?            @relation("Assignee", fields: [assigneeId], references: [id])
-  events   TimelineEvent[]
+  reporter      User             @relation("Reporter", fields: [reporterId], references: [id])
+  assignee      User?            @relation("Assignee", fields: [assigneeId], references: [id])
+  events        TimelineEvent[]
+  comments      Comment[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([category])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([createdAt])
+  @@index([dueAt])
 }
 
 model TimelineEvent {
@@ -55,9 +75,40 @@ model TimelineEvent {
   complaintId String
   actorId     String?
   status      String
+  action      String   @default("STATUS")
   note        String
   createdAt   DateTime @default(now())
 
   complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
   actor     User?     @relation(fields: [actorId], references: [id])
+
+  @@index([complaintId, createdAt])
+}
+
+model Comment {
+  id          String   @id @default(cuid())
+  complaintId String
+  actorId     String
+  body        String
+  createdAt   DateTime @default(now())
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  actor     User      @relation(fields: [actorId], references: [id])
+
+  @@index([complaintId, createdAt])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  complaintId String?
+  title       String
+  body        String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt])
 }

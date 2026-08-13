@@ -3,100 +3,99 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import CampusMap from "@/components/map/CampusMap";
+import { Button } from "@/components/ui/button";
+import { Card, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
+import { Select } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
-import { CAMPUS_LOCATIONS, CAMPUS_ZONES, type CampusLocation } from "@/lib/campus";
+import { api } from "@/lib/client";
+import { CATEGORIES } from "@/lib/constants";
+import { getLocation } from "@/lib/campus";
+import { remainingLabel } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
+
+type Filter = "ALL" | "OPEN" | "HIGH" | "OVERDUE" | "RESOLVED";
 
 export default function MapPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [focus, setFocus] = useState<[number, number] | null>(null);
-  const [openOnly, setOpenOnly] = useState(true);
+  const [filter, setFilter] = useState<Filter>("OPEN");
+  const [category, setCategory] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
-    fetch("/api/complaints")
-      .then((res) => res.json())
-      .then((payload) => setTickets(payload.complaints ?? []));
+    api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100")
+      .then((payload) => {
+        setTickets(payload.complaints);
+        setNow(Date.now());
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  const visibleTickets = tickets.filter((ticket) =>
-    openOnly ? !["RESOLVED", "CLOSED"].includes(ticket.status) : true,
-  );
-  const locations = useMemo(
-    () =>
-      CAMPUS_LOCATIONS.filter((item) =>
-        `${item.name} ${item.shortName} ${item.kind}`.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [query],
-  );
-  const active = tickets.find((item) => item.id === selected);
+  const visible = useMemo(() => {
+    return tickets.filter((ticket) => {
+      if (category && ticket.category !== category) return false;
+      if (filter === "OPEN") return !["RESOLVED", "CLOSED"].includes(ticket.status);
+      if (filter === "HIGH") return ticket.priority === "HIGH" || ticket.priority === "CRITICAL";
+      if (filter === "OVERDUE") return !["RESOLVED", "CLOSED"].includes(ticket.status) && new Date(ticket.dueAt).getTime() < now;
+      if (filter === "RESOLVED") return ticket.status === "RESOLVED" || ticket.status === "CLOSED";
+      return true;
+    });
+  }, [tickets, filter, category, now]);
 
-  function flyToLocation(location: CampusLocation) {
-    setFocus([location.lat, location.lng]);
-  }
+  const active = tickets.find((item) => item.id === selected);
+  const open = visible.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status));
+  const overdue = open.filter((item) => new Date(item.dueAt).getTime() < now);
+  const high = open.filter((item) => item.priority === "HIGH" || item.priority === "CRITICAL");
+
+  if (loading) return <Skeleton className="h-[70vh]" />;
+  if (error) return <ErrorState message={error} />;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-300">Geospatial ops</p>
-          <h1 className="font-display text-4xl">BIT campus map</h1>
-        </div>
-        <label className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-slate-400">
-          <input type="checkbox" checked={openOnly} onChange={(event) => setOpenOnly(event.target.checked)} />
-          Open tickets only
-        </label>
+    <div>
+      <PageHeader title="Campus map" description="Operational GIS for BIT Sathy. Pins are live complaints, not decoration." />
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(["ALL", "OPEN", "HIGH", "OVERDUE", "RESOLVED"] as Filter[]).map((item) => (
+          <Button key={item} size="sm" variant={filter === item ? "primary" : "secondary"} onClick={() => setFilter(item)}>
+            {item === "ALL" ? "All" : item === "OPEN" ? "Open" : item === "HIGH" ? "High priority" : item === "OVERDUE" ? "Overdue" : "Resolved"}
+          </Button>
+        ))}
+        <Select value={category} onChange={(event) => setCategory(event.target.value)} className="w-auto">
+          <option value="">All categories</option>
+          {CATEGORIES.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </Select>
       </div>
-      <div className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="h-[70vh] min-h-[520px]">
-          <CampusMap
-            tickets={visibleTickets}
-            selectedId={selected}
-            onSelectTicket={setSelected}
-            onSelectLocation={flyToLocation}
-            focus={focus}
-          />
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_0.6fr]">
+        <div className="h-[70vh] min-h-[480px]">
+          <CampusMap tickets={visible} selectedId={selected} onSelectTicket={setSelected} />
         </div>
-        <aside className="space-y-4">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Learning Centre, Sapphire, Data Centre…"
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm"
-          />
-          <div className="flex flex-wrap gap-2">
-            {CAMPUS_ZONES.map((zone) => (
-              <span key={zone.id} className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-400">
-                <i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: zone.color }} />
-                {zone.label}
-              </span>
-            ))}
-          </div>
+        <aside className="space-y-3">
+          <Card>
+            <p className="text-sm font-medium">{open.length} open complaints in this view</p>
+            <p className="text-sm text-[var(--muted)]">{overdue.length} overdue · {high.length} high priority</p>
+          </Card>
           {active ? (
-            <Link href={`/dashboard/complaints/${active.id}`} className="glass block rounded-3xl p-4">
-              <p className="font-mono text-[11px] text-cyan-300">{active.ticketNo}</p>
-              <p className="mt-2 font-medium">{active.title}</p>
-              <div className="mt-3 flex gap-2">
-                <StatusBadge status={active.status} />
-                <PriorityBadge priority={active.priority} />
-              </div>
+            <Link href={`/dashboard/complaints/${active.id}`}>
+              <Card>
+                <p className="font-mono text-xs text-[var(--accent)]">{active.ticketNo}</p>
+                <p className="mt-1 font-medium">{active.title}</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">{getLocation(active.locationId)?.name}</p>
+                <div className="mt-2 flex gap-2">
+                  <StatusBadge status={active.status} />
+                  <PriorityBadge priority={active.priority} />
+                </div>
+                <p className="mt-2 text-xs text-[var(--muted)]">{remainingLabel(active.dueAt, active.status, active.resolvedAt)}</p>
+              </Card>
             </Link>
-          ) : null}
-          <div className="max-h-[46vh] space-y-2 overflow-auto pr-1">
-            {locations.map((location) => (
-              <button
-                key={location.id}
-                onClick={() => flyToLocation(location)}
-                className="w-full rounded-2xl border border-white/10 bg-white/5 p-3 text-left hover:border-cyan-300/30"
-              >
-                <p className="text-sm">{location.shortName}</p>
-                <p className="text-[11px] text-slate-500">
-                  {location.kind} · {location.source === "osm" ? "OSM" : "layout"}
-                </p>
-              </button>
-            ))}
-          </div>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">Select a pin to preview a complaint.</p>
+          )}
         </aside>
       </div>
     </div>

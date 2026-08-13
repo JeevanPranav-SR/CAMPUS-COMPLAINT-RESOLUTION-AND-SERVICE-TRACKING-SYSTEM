@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { ok } from "@/lib/http";
 import { clearSession } from "@/lib/session";
 
 export async function POST() {
   await clearSession();
-  return NextResponse.json({ ok: true });
+  return ok({ ok: true });
 }

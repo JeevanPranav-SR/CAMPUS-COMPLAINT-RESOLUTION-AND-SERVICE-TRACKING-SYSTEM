@@ -40,7 +40,3 @@ export async function loginWithCredentials(email: string, password: string) {
   await createSession(session);
   return session;
 }
-
-export function canSeeAll(role: Role) {
-  return role === "ADMIN" || role === "STAFF" || role === "WARDEN";
-}

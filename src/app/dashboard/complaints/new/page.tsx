@@ -1,159 +1,179 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import CampusMap from "@/components/map/CampusMap";
+import { Button } from "@/components/ui/button";
+import { Card, PageHeader } from "@/components/ui/card";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { useToast } from "@/components/ui/toast";
 import { CAMPUS_LOCATIONS, nearestLocation, type CampusLocation } from "@/lib/campus";
+import { api } from "@/lib/client";
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
+import type { Ticket } from "@/lib/types";
 
 export default function NewComplaintPage() {
-  const router = useRouter();
+  const toast = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<string>(CATEGORIES[0].id);
+  const [category, setCategory] = useState("ELECTRICAL");
   const [priority, setPriority] = useState<Priority>("MEDIUM");
   const [location, setLocation] = useState<CampusLocation>(CAMPUS_LOCATIONS[2]);
-  const [pick, setPick] = useState({ lat: location.lat, lng: location.lng });
+  const [pick, setPick] = useState<{ lat: number; lng: number } | null>(null);
   const [landmark, setLandmark] = useState("");
+  const [evidence, setEvidence] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<Ticket | null>(null);
 
   const hours = slaHours(category, priority);
-  const unit = useMemo(
-    () => CATEGORIES.find((item) => item.id === category)?.unit,
-    [category],
-  );
-
-  function chooseLocation(next: CampusLocation) {
-    setLocation(next);
-    setPick({ lat: next.lat, lng: next.lng });
-  }
+  const unit = useMemo(() => CATEGORIES.find((item) => item.id === category)?.unit, [category]);
 
   function handlePick(lat: number, lng: number) {
     setPick({ lat, lng });
     setLocation(nearestLocation(lat, lng));
   }
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    const response = await fetch("/api/complaints", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        category,
-        priority,
-        locationId: location.id,
-        lat: pick.lat,
-        lng: pick.lng,
-        landmark,
-      }),
-    });
-    const payload = await response.json();
-    setBusy(false);
-    if (!response.ok) {
-      setError(payload.error || "Could not file ticket");
+  async function onFile(file?: File) {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Only JPEG, PNG or WebP images are allowed.");
       return;
     }
-    router.push(`/dashboard/complaints/${payload.complaint.id}`);
+    if (file.size > 1_200_000) {
+      setError("Image must be under 1.2 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setEvidence(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!pick) {
+      setError("Pin the issue on the campus map.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const payload = await api<{ complaint: Ticket }>("/api/complaints", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          description,
+          category,
+          priority,
+          locationId: location.id,
+          lat: pick.lat,
+          lng: pick.lng,
+          landmark,
+          evidence: evidence || undefined,
+        }),
+      });
+      setCreated(payload.complaint);
+      toast("Complaint submitted successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to submit");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (created) {
+    return (
+      <Card className="mx-auto max-w-xl p-8 text-center">
+        <p className="text-sm font-medium text-emerald-700">Complaint submitted successfully.</p>
+        <h1 className="mt-2 text-2xl font-semibold">{created.ticketNo}</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">{created.title}</p>
+        <p className="mt-4 text-sm">SLA window: {created.slaHours} hours from submission.</p>
+        <div className="mt-6 flex justify-center gap-3">
+          <Link href={`/dashboard/complaints/${created.id}`}>
+            <Button>Track complaint</Button>
+          </Link>
+          <Link href="/dashboard">
+            <Button variant="secondary">Back to dashboard</Button>
+          </Link>
+        </div>
+      </Card>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-300">Geo-tagged intake</p>
-        <h1 className="font-display text-4xl">File a campus issue</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-400">
-          Drop a pin on the BIT map. NEXUS snaps it to the nearest facility and routes it to {unit}.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Report an issue"
+        description="Pin the location on the satellite map, then describe the problem. Estate will assign a worker."
+      />
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-4">
-          <input
-            required
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="Short fault title"
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-          />
-          <textarea
-            required
-            rows={5}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="What is broken, who is affected, and when it started."
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              className="rounded-2xl border border-white/10 bg-[#0b1220] px-4 py-3"
-            >
-              {CATEGORIES.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={priority}
-              onChange={(event) => setPriority(event.target.value as Priority)}
-              className="rounded-2xl border border-white/10 bg-[#0b1220] px-4 py-3"
-            >
-              {PRIORITIES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </div>
-          <select
-            value={location.id}
-            onChange={(event) => {
-              const next = CAMPUS_LOCATIONS.find((item) => item.id === event.target.value);
-              if (next) chooseLocation(next);
-            }}
-            className="w-full rounded-2xl border border-white/10 bg-[#0b1220] px-4 py-3"
-          >
-            {CAMPUS_LOCATIONS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <input
-            value={landmark}
-            onChange={(event) => setLandmark(event.target.value)}
-            placeholder="Landmark — floor, room, wing…"
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-          />
-          <div className="rounded-3xl border border-cyan-400/20 bg-cyan-400/5 p-4 text-sm text-cyan-100">
-            Snapped to <strong>{location.name}</strong>. SLA window {hours}h · {unit}.
-            <div className="mt-1 font-mono text-[11px] text-cyan-300/80">
-              {pick.lat.toFixed(6)}°N {pick.lng.toFixed(6)}°E
-            </div>
-          </div>
-          {error ? <p className="text-sm text-rose-300">{error}</p> : null}
-          <button
-            disabled={busy}
-            className="w-full rounded-2xl bg-cyan-300 py-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-950"
-          >
-            {busy ? "Filing…" : "Submit ticket"}
-          </button>
+          <Card className="space-y-4">
+            <h2 className="text-sm font-semibold">Issue details</h2>
+            <Field label="Title" hint="8–120 characters">
+              <Input required minLength={8} maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} />
+            </Field>
+            <Field label="Category">
+              <Select value={category} onChange={(event) => setCategory(event.target.value)}>
+                {CATEGORIES.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Description" hint="What is broken, who is affected, and when it started.">
+              <Textarea required minLength={20} maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} />
+            </Field>
+            <Field label="Priority">
+              <Select value={priority} onChange={(event) => setPriority(event.target.value as Priority)}>
+                {PRIORITIES.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </Card>
+          <Card className="space-y-4">
+            <h2 className="text-sm font-semibold">Location</h2>
+            <Field label="Building / facility">
+              <Select
+                value={location.id}
+                onChange={(event) => {
+                  const next = CAMPUS_LOCATIONS.find((item) => item.id === event.target.value);
+                  if (next) {
+                    setLocation(next);
+                    setPick({ lat: next.lat, lng: next.lng });
+                  }
+                }}
+              >
+                {CAMPUS_LOCATIONS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Room / block / landmark">
+              <Input value={landmark} onChange={(event) => setLandmark(event.target.value)} placeholder="Floor, room, wing" />
+            </Field>
+            <p className="text-sm text-[var(--muted)]">
+              {pick ? `Pinned near ${location.name} · routed to ${unit} · SLA ${hours}h` : "Tap the map to drop a pin."}
+            </p>
+          </Card>
+          <Card>
+            <Field label="Photo (optional)" hint="JPEG, PNG or WebP, max 1.2 MB">
+              <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onFile(event.target.files?.[0])} />
+            </Field>
+          </Card>
+          {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+          <Button disabled={busy} className="w-full">
+            {busy ? "Submitting…" : "Submit complaint"}
+          </Button>
         </div>
-        <div className="h-[640px]">
-          <CampusMap
-            pickMode
-            pick={pick}
-            onPick={handlePick}
-            onSelectLocation={chooseLocation}
-            focus={[pick.lat, pick.lng]}
-            showLocations
-          />
+        <div className="h-[620px]">
+          <CampusMap pickMode pick={pick} onPick={handlePick} onSelectLocation={(item) => { setLocation(item); setPick({ lat: item.lat, lng: item.lng }); }} focus={pick ? [pick.lat, pick.lng] : null} />
         </div>
       </form>
     </div>

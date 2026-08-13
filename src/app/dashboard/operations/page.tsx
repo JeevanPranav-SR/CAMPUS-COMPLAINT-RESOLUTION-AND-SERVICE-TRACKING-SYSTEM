@@ -2,73 +2,193 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { PageHeader, ErrorState, Skeleton } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
+import { useToast } from "@/components/ui/toast";
+import { api } from "@/lib/client";
 import { getLocation } from "@/lib/campus";
-import type { Ticket } from "@/lib/types";
 import { remainingLabel } from "@/lib/utils";
+import type { Ticket } from "@/lib/types";
+import type { SessionUser } from "@/lib/session";
+import { allowedTransitions, canAssign } from "@/lib/permissions";
+import type { Status } from "@/lib/constants";
 
-const COLUMNS = ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "IN_PROGRESS", "ON_HOLD"] as const;
+const COLUMNS = [
+  { id: "SUBMITTED", match: ["SUBMITTED"] },
+  { id: "ACKNOWLEDGED", match: ["ACKNOWLEDGED"] },
+  { id: "ASSIGNED", match: ["ASSIGNED", "REOPENED"] },
+  { id: "IN_PROGRESS", match: ["IN_PROGRESS", "ON_HOLD"] },
+  { id: "RESOLVED", match: ["RESOLVED"] },
+  { id: "CLOSED", match: ["CLOSED"] },
+] as const;
+
+type Staff = { id: string; name: string; department: string | null; role: string };
+
+function actionLabel(status: Status) {
+  if (status === "ACKNOWLEDGED") return "Acknowledge";
+  if (status === "IN_PROGRESS") return "Start work";
+  if (status === "ON_HOLD") return "Hold";
+  if (status === "RESOLVED") return "Mark resolved";
+  if (status === "ASSIGNED") return "Assign";
+  return status.replace(/_/g, " ");
+}
 
 export default function OperationsPage() {
+  const toast = useToast();
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [scope, setScope] = useState("all");
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [me, setMe] = useState<SessionUser | null>(null);
+  const [assignTo, setAssignTo] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    try {
+      const [ticketPayload, staffPayload, mePayload] = await Promise.all([
+        api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100"),
+        api<{ staff: Staff[] }>("/api/staff"),
+        api<{ user: SessionUser }>("/api/auth/me"),
+      ]);
+      setTickets(ticketPayload.complaints);
+      setStaff(staffPayload.staff);
+      setMe(mePayload.user);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load operations");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    fetch(`/api/complaints?scope=${scope === "assigned" ? "assigned" : "default"}`)
-      .then((res) => res.json())
-      .then((payload) => setTickets(payload.complaints ?? []));
-  }, [scope]);
+    let active = true;
+    Promise.all([
+      api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100"),
+      api<{ staff: Staff[] }>("/api/staff"),
+      api<{ user: SessionUser }>("/api/auth/me"),
+    ])
+      .then(([ticketPayload, staffPayload, mePayload]) => {
+        if (!active) return;
+        setTickets(ticketPayload.complaints);
+        setStaff(staffPayload.staff);
+        setMe(mePayload.user);
+        setError("");
+      })
+      .catch((err: Error) => {
+        if (active) setError(err instanceof Error ? err.message : "Unable to load operations");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function act(id: string, status?: Status, assigneeId?: string) {
+    try {
+      await api(`/api/complaints/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status, assigneeId }),
+      });
+      toast("Complaint updated.");
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Update failed", "error");
+    }
+  }
 
   const grouped = useMemo(
     () =>
       Object.fromEntries(
-        COLUMNS.map((column) => [column, tickets.filter((ticket) => ticket.status === column)]),
-      ) as Record<(typeof COLUMNS)[number], Ticket[]>,
+        COLUMNS.map((column) => [column.id, tickets.filter((ticket) => column.match.includes(ticket.status as never))]),
+      ) as Record<string, Ticket[]>,
     [tickets],
   );
 
+  if (loading) return <Skeleton className="h-96" />;
+  if (error) return <ErrorState message={error} onRetry={load} />;
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.28em] text-cyan-300">Field operations</p>
-          <h1 className="font-display text-4xl">Crew board</h1>
-        </div>
-        <select
-          value={scope}
-          onChange={(event) => setScope(event.target.value)}
-          className="rounded-2xl border border-white/10 bg-[#0b1220] px-4 py-2 text-sm"
-        >
-          <option value="all">Campus queue</option>
-          <option value="assigned">Assigned to me</option>
-        </select>
-      </div>
-      <div className="grid gap-3 overflow-x-auto pb-4 lg:grid-cols-5">
+    <div>
+      <PageHeader title="Operations" description="Acknowledge, assign staff, work tickets, and mark them resolved." />
+      <div className="flex gap-3 overflow-x-auto pb-4 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3 xl:grid-cols-6">
         {COLUMNS.map((column) => (
-          <section key={column} className="min-w-[240px] rounded-[28px] border border-white/10 bg-white/4 p-3">
-            <div className="mb-3 flex items-center justify-between px-1">
-              <h2 className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
-                {column.replace(/_/g, " ")}
-              </h2>
-              <span className="text-xs text-cyan-300">{grouped[column].length}</span>
+          <section key={column.id} className="min-w-[260px] shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:min-w-0">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{column.id.replace(/_/g, " ")}</h2>
+              <span className="text-xs">{grouped[column.id]?.length ?? 0}</span>
             </div>
             <div className="space-y-3">
-              {grouped[column].map((ticket) => (
-                <Link
-                  key={ticket.id}
-                  href={`/dashboard/complaints/${ticket.id}`}
-                  className="block rounded-2xl border border-white/10 bg-[#070b14] p-3"
-                >
-                  <p className="font-mono text-[10px] text-cyan-300">{ticket.ticketNo}</p>
-                  <p className="mt-1 text-sm">{ticket.title}</p>
-                  <p className="mt-1 text-[11px] text-slate-500">{getLocation(ticket.locationId)?.shortName}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <PriorityBadge priority={ticket.priority} />
-                    <StatusBadge status={ticket.status} />
-                  </div>
-                  <p className="mt-2 text-[11px] text-slate-500">{remainingLabel(ticket.dueAt)}</p>
-                </Link>
-              ))}
+              {(grouped[column.id] ?? []).length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">No tickets</p>
+              ) : (
+                grouped[column.id].map((ticket) => {
+                  const allowed = me ? allowedTransitions(ticket.status as Status, me.role).filter((status) => status !== "CLOSED" && status !== "REOPENED" && status !== "ASSIGNED") : [];
+                  return (
+                    <article key={ticket.id} className="rounded-md border border-[var(--border)] p-3">
+                      <Link href={`/dashboard/complaints/${ticket.id}`} className="block">
+                        <p className="font-mono text-[11px] text-[var(--accent)]">{ticket.ticketNo}</p>
+                        <p className="mt-1 text-sm font-medium">{ticket.title}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{getLocation(ticket.locationId)?.shortName}</p>
+                      </Link>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <PriorityBadge priority={ticket.priority} />
+                        <StatusBadge status={ticket.status} />
+                      </div>
+                      <p className="mt-2 text-xs text-[var(--muted)]">
+                        {ticket.assignee?.name ? `Assigned: ${ticket.assignee.name}` : "Unassigned"}
+                      </p>
+                      <p className="text-xs text-[var(--muted)]">{remainingLabel(ticket.dueAt, ticket.status, ticket.resolvedAt)}</p>
+                      {me && canAssign(me.role) && ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "REOPENED"].includes(ticket.status) ? (
+                        <div className="mt-2 space-y-2">
+                          <Select
+                            value={assignTo[ticket.id] ?? ticket.assigneeId ?? ""}
+                            onChange={(event) => setAssignTo((current) => ({ ...current, [ticket.id]: event.target.value }))}
+                            aria-label={`Assign ${ticket.ticketNo}`}
+                          >
+                            <option value="">Select staff</option>
+                            {staff.map((person) => (
+                              <option key={person.id} value={person.id}>
+                                {person.name}
+                              </option>
+                            ))}
+                          </Select>
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            disabled={!(assignTo[ticket.id] || ticket.assigneeId)}
+                            onClick={() => act(ticket.id, "ASSIGNED", assignTo[ticket.id] || ticket.assigneeId || undefined)}
+                          >
+                            Assign
+                          </Button>
+                        </div>
+                      ) : null}
+                      {me?.role === "STAFF" && !ticket.assigneeId ? (
+                        <Button size="sm" className="mt-2 w-full" onClick={() => act(ticket.id, undefined, me.id)}>
+                          Take ticket
+                        </Button>
+                      ) : null}
+                      {allowed.length > 0 ? (
+                        <div className="mt-2 flex flex-col gap-2">
+                          {allowed.map((status) => (
+                            <Button
+                              key={status}
+                              size="sm"
+                              variant={status === "RESOLVED" ? "primary" : "secondary"}
+                              onClick={() => act(ticket.id, status)}
+                            >
+                              {actionLabel(status)}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })
+              )}
             </div>
           </section>
         ))}

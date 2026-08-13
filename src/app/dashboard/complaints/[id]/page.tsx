@@ -3,184 +3,297 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import CampusMap from "@/components/map/CampusMap";
+import { Button } from "@/components/ui/button";
+import { Card, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
+import { Select, Textarea } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
-import { CATEGORIES, nextStatuses, STATUS_META, type Role, type Status } from "@/lib/constants";
+import { useToast } from "@/components/ui/toast";
+import { api } from "@/lib/client";
+import { CATEGORIES, LIFECYCLE, type Status } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
-import type { Ticket } from "@/lib/types";
+import { allowedTransitions, canAssign, isOps, isReporter } from "@/lib/permissions";
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
+import type { Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
 
 type Staff = { id: string; name: string; department: string | null; role: string };
 
 export default function TicketDetailPage() {
   const params = useParams<{ id: string }>();
+  const toast = useToast();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [me, setMe] = useState<SessionUser | null>(null);
   const [note, setNote] = useState("");
+  const [comment, setComment] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [rating, setRating] = useState(5);
+  const [ratingComment, setRatingComment] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [ticketRes, meRes] = await Promise.all([
-      fetch(`/api/complaints/${params.id}`),
-      fetch("/api/auth/me"),
-    ]);
-    const ticketPayload = await ticketRes.json();
-    const mePayload = await meRes.json();
-    setTicket(ticketPayload.complaint);
-    setStaff(ticketPayload.staff ?? []);
-    setMe(mePayload.user);
-    setAssigneeId(ticketPayload.complaint?.assigneeId ?? "");
+    try {
+      const [ticketPayload, mePayload] = await Promise.all([
+        api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`),
+        api<{ user: SessionUser }>("/api/auth/me"),
+      ]);
+      setTicket(ticketPayload.complaint);
+      setStaff(ticketPayload.staff);
+      setMe(mePayload.user);
+      setAssigneeId(ticketPayload.complaint.assigneeId ?? "");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load complaint");
+    }
   }
 
   useEffect(() => {
-    load();
+    let active = true;
+    Promise.all([
+      api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`),
+      api<{ user: SessionUser }>("/api/auth/me"),
+    ])
+      .then(([ticketPayload, mePayload]) => {
+        if (!active) return;
+        setTicket(ticketPayload.complaint);
+        setStaff(ticketPayload.staff);
+        setMe(mePayload.user);
+        setAssigneeId(ticketPayload.complaint.assigneeId ?? "");
+        setError("");
+      })
+      .catch((err: Error) => {
+        if (active) setError(err instanceof Error ? err.message : "Unable to load complaint");
+      });
+    return () => {
+      active = false;
+    };
   }, [params.id]);
 
   async function update(status?: Status) {
     if (!ticket) return;
     setBusy(true);
-    await fetch(`/api/complaints/${ticket.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status,
-        assigneeId: assigneeId || undefined,
-        note,
-      }),
-    });
-    setNote("");
-    setBusy(false);
-    await load();
+    try {
+      const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status,
+          assigneeId: assigneeId || undefined,
+          note,
+          reason,
+          rating: status === "CLOSED" ? rating : undefined,
+          ratingComment: status === "CLOSED" ? ratingComment : undefined,
+        }),
+      });
+      setTicket(payload.complaint);
+      setNote("");
+      setReason("");
+      toast("Status updated.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to update", "error");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  if (!ticket || !me) {
-    return <p className="text-slate-400">Loading ticket telemetry…</p>;
+  async function sendComment(event: React.FormEvent) {
+    event.preventDefault();
+    if (!ticket) return;
+    setBusy(true);
+    try {
+      const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ body: comment }),
+      });
+      setTicket(payload.complaint);
+      setComment("");
+      toast("Comment added.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to comment", "error");
+    } finally {
+      setBusy(false);
+    }
   }
+
+  async function takeTicket() {
+    if (!ticket || !me) return;
+    setBusy(true);
+    try {
+      const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assigneeId: me.id }),
+      });
+      setTicket(payload.complaint);
+      setAssigneeId(me.id);
+      toast("Ticket assigned to you.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to take ticket", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!ticket || !me) return <Skeleton className="h-96" />;
 
   const location = getLocation(ticket.locationId);
   const unit = CATEGORIES.find((item) => item.id === ticket.category)?.unit;
-  const allowed = nextStatuses(ticket.status as Status, me.role as Role);
-  const sla = slaState(ticket.dueAt, ticket.status);
-  const steps = ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "IN_PROGRESS", "RESOLVED", "CLOSED"];
+  const allowed = allowedTransitions(ticket.status as Status, me.role);
+  const sla = slaState(ticket.dueAt, ticket.status, ticket.resolvedAt);
+  const ops = isOps(me.role);
+  const reporter = isReporter(me.role);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-      <div className="space-y-5">
-        <div>
-          <p className="font-mono text-xs text-cyan-300">{ticket.ticketNo}</p>
-          <h1 className="mt-1 font-display text-4xl">{ticket.title}</h1>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <StatusBadge status={ticket.status} />
-            <PriorityBadge priority={ticket.priority} />
-            <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-slate-400">
-              {sla === "breached" ? "SLA breached" : remainingLabel(ticket.dueAt)}
-            </span>
-          </div>
-        </div>
-        <p className="text-sm leading-7 text-slate-300">{ticket.description}</p>
-        <dl className="grid grid-cols-2 gap-3 text-sm">
-          <div className="glass rounded-2xl p-4">
-            <dt className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Facility</dt>
-            <dd className="mt-1">{location?.name}</dd>
-          </div>
-          <div className="glass rounded-2xl p-4">
-            <dt className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Owning unit</dt>
-            <dd className="mt-1">{unit}</dd>
-          </div>
-          <div className="glass rounded-2xl p-4">
-            <dt className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Reporter</dt>
-            <dd className="mt-1">{ticket.reporter?.name}</dd>
-          </div>
-          <div className="glass rounded-2xl p-4">
-            <dt className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Assignee</dt>
-            <dd className="mt-1">{ticket.assignee?.name ?? "Unassigned"}</dd>
-          </div>
-        </dl>
+    <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className="space-y-4">
+        <PageHeader
+          kicker={ticket.ticketNo}
+          title={ticket.title}
+          description={`${location?.name ?? ""} ${ticket.landmark ? `· ${ticket.landmark}` : ""}`}
+        />
         <div className="flex flex-wrap gap-2">
-          {steps.map((step, index) => {
-            const current = STATUS_META[ticket.status as Status]?.step ?? 1;
-            const active = index + 1 <= current;
-            return (
-              <div
-                key={step}
-                className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.14em] ${
-                  active ? "bg-cyan-300/15 text-cyan-200" : "bg-white/5 text-slate-500"
-                }`}
-              >
-                {index + 1} {step.replace(/_/g, " ")}
-              </div>
-            );
-          })}
+          <StatusBadge status={ticket.status} />
+          <PriorityBadge priority={ticket.priority} />
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${sla === "breached" || sla === "missed" ? "bg-red-50 text-red-700" : "bg-slate-100 text-slate-700"}`}>
+            {remainingLabel(ticket.dueAt, ticket.status, ticket.resolvedAt)}
+          </span>
         </div>
-        <div className="space-y-3">
-          <h2 className="font-display text-2xl">Tracking log</h2>
-          {(ticket.events ?? []).map((event) => (
-            <div key={event.id} className="flex gap-3">
-              <div className="mt-1 h-2 w-2 rounded-full bg-cyan-300" />
-              <div>
-                <p className="text-sm">
-                  {event.note}{" "}
-                  <span className="text-slate-500">· {event.actor?.name ?? "System"}</span>
-                </p>
-                <p className="text-xs text-slate-500">{formatDateTime(event.createdAt)}</p>
-              </div>
+        <Card>
+          <h2 className="text-sm font-semibold">Description</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">{ticket.description}</p>
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt className="text-[var(--muted)]">Category</dt>
+              <dd>{unit}</dd>
             </div>
-          ))}
-        </div>
-        <div className="glass space-y-3 rounded-3xl p-4">
-          <h3 className="font-display text-xl">Advance ticket</h3>
-          {["STAFF", "WARDEN", "ADMIN"].includes(me.role) ? (
-            <select
-              value={assigneeId}
-              onChange={(event) => setAssigneeId(event.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-[#0b1220] px-4 py-3 text-sm"
-            >
-              <option value="">Assign crew…</option>
-              {staff.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.name} · {person.department}
-                </option>
-              ))}
-            </select>
+            <div>
+              <dt className="text-[var(--muted)]">Reporter</dt>
+              <dd>{ticket.reporter?.name}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Created</dt>
+              <dd>{formatDateTime(ticket.createdAt)}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--muted)]">Assignee</dt>
+              <dd>{ticket.assignee?.name ?? "Unassigned"}</dd>
+            </div>
+          </dl>
+          {ticket.evidence ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ticket.evidence} alt="Complaint evidence" className="mt-4 max-h-64 rounded-md border" />
           ) : null}
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            rows={3}
-            placeholder="Field note / resolution remark"
-            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm"
-          />
-          <div className="flex flex-wrap gap-2">
-            {["STAFF", "WARDEN", "ADMIN"].includes(me.role) ? (
-              <button
-                disabled={busy}
-                onClick={() => update()}
-                className="rounded-full border border-white/15 px-4 py-2 text-xs uppercase tracking-[0.16em]"
-              >
-                Save assignment
-              </button>
-            ) : null}
-            {allowed.map((status) => (
-              <button
-                key={status}
-                disabled={busy}
-                onClick={() => update(status)}
-                className="rounded-full bg-cyan-300 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-950"
-              >
-                Mark {status.replace(/_/g, " ").toLowerCase()}
-              </button>
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Lifecycle</h2>
+          <ol className="mt-4 space-y-3">
+            {(ticket.events ?? []).map((event) => (
+              <li key={event.id} className="flex gap-3 border-l-2 border-slate-200 pl-3">
+                <div>
+                  <p className="text-sm">
+                    <span className="font-medium">{event.status.replace(/_/g, " ")}</span>
+                    {event.actor?.name ? ` · ${event.actor.name}` : ""}
+                    {event.actor?.role ? ` (${event.actor.role})` : ""}
+                  </p>
+                  <p className="text-sm text-slate-600">{event.note}</p>
+                  <p className="text-xs text-[var(--muted)]">{formatDateTime(event.createdAt)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {LIFECYCLE.map((step) => (
+              <span key={step} className={`rounded-full px-2 py-0.5 text-[11px] ${ticket.status === step || (ticket.status === "REOPENED" && step === "ASSIGNED") ? "bg-[var(--primary)] text-white" : "bg-slate-100 text-slate-600"}`}>
+                {step.replace(/_/g, " ")}
+              </span>
             ))}
           </div>
-        </div>
+        </Card>
+        <Card>
+          <h2 className="text-sm font-semibold">Comments</h2>
+          <ul className="mt-3 space-y-2">
+            {(ticket.comments ?? []).map((item) => (
+              <li key={item.id} className="text-sm">
+                <span className="font-medium">{item.actor.name}</span>
+                <span className="text-[var(--muted)]"> · {formatDateTime(item.createdAt)}</span>
+                <p>{item.body}</p>
+              </li>
+            ))}
+          </ul>
+          <form onSubmit={sendComment} className="mt-3 space-y-2">
+            <Textarea rows={3} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Add a progress note or question" />
+            <Button type="submit" size="sm" disabled={busy || comment.trim().length < 2}>
+              Add comment
+            </Button>
+          </form>
+        </Card>
       </div>
-      <div className="h-[640px]">
-        <CampusMap
-          tickets={[ticket]}
-          selectedId={ticket.id}
-          focus={[ticket.lat, ticket.lng]}
-        />
+      <div className="space-y-4">
+        <div className="h-72">
+          <CampusMap tickets={[ticket]} selectedId={ticket.id} focus={[ticket.lat, ticket.lng]} />
+        </div>
+        <Card className="space-y-3">
+          <h2 className="text-sm font-semibold">SLA</h2>
+          <p className="text-lg font-semibold">{remainingLabel(ticket.dueAt, ticket.status, ticket.resolvedAt)}</p>
+          <p className="text-xs text-[var(--muted)]">Current SLA window: {ticket.slaHours} hours.</p>
+        </Card>
+        {ops ? (
+          <Card className="space-y-3">
+            <h2 className="text-sm font-semibold">Operations</h2>
+            {canAssign(me.role) ? (
+              <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
+                <option value="">Select staff</option>
+                {staff.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name} · {person.department}
+                  </option>
+                ))}
+              </Select>
+            ) : null}
+            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Progress or resolution note" />
+            {me.role === "STAFF" && !ticket.assigneeId ? (
+              <Button size="sm" disabled={busy} onClick={takeTicket}>
+                Take ticket
+              </Button>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {canAssign(me.role) ? (
+                <Button size="sm" disabled={busy || !assigneeId} onClick={() => update("ASSIGNED")}>
+                  Assign staff
+                </Button>
+              ) : null}
+              {allowed.filter((status) => status !== "ASSIGNED").map((status) => (
+                <Button key={status} size="sm" variant={status === "RESOLVED" ? "primary" : "secondary"} disabled={busy} onClick={() => update(status)}>
+                  {status === "IN_PROGRESS" ? "Start work" : status === "RESOLVED" ? "Mark resolved" : status.replace(/_/g, " ")}
+                </Button>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+        {reporter && ticket.status === "RESOLVED" ? (
+          <Card className="space-y-3">
+            <h2 className="text-sm font-semibold">Has this issue been resolved?</h2>
+            <label className="text-sm">
+              Rating
+              <Select value={String(rating)} onChange={(event) => setRating(Number(event.target.value))}>
+                {[5, 4, 3, 2, 1].map((value) => (
+                  <option key={value} value={value}>
+                    {value} {value === 5 ? "— excellent" : value === 1 ? "— poor" : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <Textarea rows={2} value={ratingComment} onChange={(event) => setRatingComment(event.target.value)} placeholder="Optional comment" />
+            <Button disabled={busy} onClick={() => update("CLOSED")}>
+              Yes, close complaint
+            </Button>
+            <Textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="If not resolved, explain why" />
+            <Button variant="danger" disabled={busy || reason.trim().length < 4} onClick={() => update("REOPENED")}>
+              No, reopen complaint
+            </Button>
+          </Card>
+        ) : null}
       </div>
     </div>
   );

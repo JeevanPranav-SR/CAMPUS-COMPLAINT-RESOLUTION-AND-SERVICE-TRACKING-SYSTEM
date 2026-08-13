@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { Role } from "./constants";
+import { prisma } from "./prisma";
 
 export type SessionUser = {
   id: string;
@@ -15,7 +16,14 @@ export type SessionUser = {
 export const SESSION_COOKIE = "bit_session";
 
 export function authSecret() {
-  return new TextEncoder().encode(process.env.AUTH_SECRET ?? "bit-dev-secret");
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("AUTH_SECRET is required");
+    }
+    return new TextEncoder().encode("bit-dev-secret");
+  }
+  return new TextEncoder().encode(secret);
 }
 
 export async function signSession(user: SessionUser) {
@@ -26,19 +34,11 @@ export async function signSession(user: SessionUser) {
     .sign(authSecret());
 }
 
-export async function readSession(token?: string | null): Promise<SessionUser | null> {
+export async function readSession(token?: string | null): Promise<{ id: string } | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, authSecret());
-    return {
-      id: String(payload.id),
-      name: String(payload.name),
-      email: String(payload.email),
-      role: payload.role as Role,
-      department: (payload.department as string | null) ?? null,
-      hostel: (payload.hostel as string | null) ?? null,
-      registerNo: (payload.registerNo as string | null) ?? null,
-    };
+    return { id: String(payload.id) };
   } catch {
     return null;
   }
@@ -46,7 +46,19 @@ export async function readSession(token?: string | null): Promise<SessionUser | 
 
 export async function getSession(): Promise<SessionUser | null> {
   const store = await cookies();
-  return readSession(store.get(SESSION_COOKIE)?.value);
+  const parsed = await readSession(store.get(SESSION_COOKIE)?.value);
+  if (!parsed) return null;
+  const user = await prisma.user.findUnique({ where: { id: parsed.id } });
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role as Role,
+    department: user.department,
+    hostel: user.hostel,
+    registerNo: user.registerNo,
+  };
 }
 
 export async function createSession(user: SessionUser) {

@@ -7,10 +7,10 @@ import type { Ticket } from "@/lib/types";
 const Canvas = dynamic(() => import("./MapCanvas"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center rounded-[28px] border border-cyan-400/15 bg-[#070b14]">
+    <div className="flex h-full w-full items-center justify-center bg-[var(--bg)]">
       <div className="text-center">
-        <p className="font-display text-sm tracking-[0.35em] text-cyan-300/80">ACQUIRING CAMPUS TILES</p>
-        <p className="mt-2 text-xs text-slate-500">BIT Sathy · 11.4947°N 77.2773°E</p>
+        <p className="text-sm font-medium text-[var(--text)]">Loading campus map</p>
+        <p className="mt-2 text-xs text-[var(--muted)]">BIT Sathy · 11.4947°N 77.2773°E</p>
       </div>
     </div>
   ),
@@ -32,8 +32,13 @@ type Props = {
 
 export default function CampusMap(props: Props) {
   return (
-    <div className={props.className ?? "h-full min-h-[420px] w-full overflow-hidden rounded-[28px] border border-cyan-400/20 shadow-[0_0_80px_rgba(34,211,238,0.08)]"}>
+    <div className={props.className ?? "relative h-full min-h-[420px] w-full overflow-hidden rounded-lg border border-[var(--border)]"}>
       <Canvas {...props} />
+      {props.pickMode ? (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-[600] -translate-x-1/2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-900 shadow-lg">
+          Tap the satellite map to pin the issue
+        </div>
+      ) : null}
     </div>
   );
 }

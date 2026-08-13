@@ -1,69 +1,105 @@
 @import "tailwindcss";
 
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #16345a;
+  --primary-hover: #0f2744;
+  --accent: #1d4ed8;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --ring: #93c5fd;
+  --sidebar: #10233d;
+  --sidebar-text: #dbe7f3;
+}
+
+.dark {
+  --bg: #0b1220;
+  --surface: #121a2a;
+  --text: #e8eef6;
+  --muted: #94a3b8;
+  --border: #243044;
+  --primary: #93c5fd;
+  --primary-hover: #bfdbfe;
+  --accent: #60a5fa;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --ring: #1d4ed8;
+  --sidebar: #0b1220;
+  --sidebar-text: #dbe7f3;
+}
+
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-rajdhani);
-  --color-background: #05070d;
-  --color-foreground: #e8eef6;
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
 }
 
 html,
 body {
-  background: #05070d;
-  color: #e8eef6;
+  background: var(--bg);
+  color: var(--text);
   min-height: 100%;
 }
 
 body {
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-.font-display {
-  font-family: var(--font-rajdhani), var(--font-geist-sans), sans-serif;
-}
-
-.grid-bg {
-  background-image:
-    linear-gradient(rgba(34, 211, 238, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(34, 211, 238, 0.05) 1px, transparent 1px);
-  background-size: 42px 42px;
-}
-
-.glass {
-  background: rgba(10, 16, 28, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px);
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .leaflet-container {
-  background: #070b14;
-  font-family: inherit;
   height: 100%;
   width: 100%;
+  font-family: inherit;
 }
 
-.leaflet-control-layers,
-.leaflet-bar a {
-  background: #0b1220 !important;
-  color: #e2e8f0 !important;
-  border: 1px solid rgba(34, 211, 238, 0.2) !important;
+.gmaps-pin,
+.place-dot {
+  background: transparent;
+  border: 0;
 }
 
-.leaflet-popup-content-wrapper,
-.leaflet-popup-tip {
-  background: #f8fafc;
-  color: #0f172a;
+.place-dot span {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-input,
-select,
-textarea {
-  outline: none;
+.gmaps-basemap {
+  position: absolute;
+  left: 12px;
+  bottom: 22px;
+  z-index: 500;
+  display: flex;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
-input:focus,
-select:focus,
-textarea:focus {
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.45);
+.gmaps-basemap button {
+  background: #fff;
+  color: #111827;
+  border: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gmaps-basemap button.on {
+  background: #1a73e8;
+  color: #fff;
 }
