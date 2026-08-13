@@ -73,7 +73,7 @@ Each transition writes a timeline event (actor, role, timestamp, note).
 ## System Architecture
 
 - **Next.js App Router** — pages, layouts, and Route Handlers
-- **Prisma + SQLite** — relational data for users, tickets, timeline, comments, notifications
+- **Prisma + Neon Postgres** — relational data for users, tickets, timeline, comments, notifications
 - **JWT httpOnly cookie** — session after login (`bit_session`)
 - **Leaflet** — campus polygon, facility pins, and complaint markers
 - **Recharts** — analytics from `/api/stats`
@@ -82,14 +82,14 @@ High-level flow:
 
 1. Browser calls `/api/*` with the session cookie
 2. Route Handler checks the session and role
-3. Prisma reads/writes SQLite
+3. Prisma reads/writes Postgres
 4. Status changes create timeline events and notifications
 
 ## Technology Stack
 
 - Next.js 16 · React 19 · TypeScript
 - Tailwind CSS 4
-- Prisma 6 · SQLite
+- Prisma 6 · Neon Postgres
 - jose (JWT) · bcryptjs
 - Leaflet / react-leaflet
 - Recharts
@@ -159,10 +159,13 @@ cp .env.example .env
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | SQLite file, e.g. `file:./dev.db` |
+| `DATABASE_URL` | Pooled Postgres connection (Neon) |
+| `DATABASE_URL_UNPOOLED` | Direct Postgres connection for Prisma migrations |
 | `AUTH_SECRET` | JWT signing secret |
 
-Do not commit `.env`.
+On Vercel these are provisioned by the Neon integration. Locally run `npx vercel env pull .env.local`.
+
+Do not commit `.env` or `.env.local`.
 
 ## Database Setup
 

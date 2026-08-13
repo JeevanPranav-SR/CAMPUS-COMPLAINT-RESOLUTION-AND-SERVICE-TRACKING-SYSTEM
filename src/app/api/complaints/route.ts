@@ -25,9 +25,9 @@ function searchWhere(q: string): Prisma.ComplaintWhereInput {
   }
   return {
     OR: [...variants].flatMap((term) => [
-      { ticketNo: { contains: term } },
-      { title: { contains: term } },
-      { description: { contains: term } },
+      { ticketNo: { contains: term, mode: "insensitive" } },
+      { title: { contains: term, mode: "insensitive" } },
+      { description: { contains: term, mode: "insensitive" } },
     ]),
   };
 }
