@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-rajdhani);
+  --color-background: #05070d;
+  --color-foreground: #e8eef6;
+}
+
+html,
+body {
+  background: #05070d;
+  color: #e8eef6;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: var(--font-rajdhani), var(--font-geist-sans), sans-serif;
+}
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(34, 211, 238, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.05) 1px, transparent 1px);
+  background-size: 42px 42px;
+}
+
+.glass {
+  background: rgba(10, 16, 28, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.leaflet-container {
+  background: #070b14;
+  font-family: inherit;
+  height: 100%;
+  width: 100%;
+}
+
+.leaflet-control-layers,
+.leaflet-bar a {
+  background: #0b1220 !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(34, 211, 238, 0.2) !important;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.45);
+}

@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String
+  department   String?
+  hostel       String?
+  registerNo   String?
+  phone        String?
+  createdAt    DateTime @default(now())
+
+  reported  Complaint[]      @relation("Reporter")
+  assigned  Complaint[]      @relation("Assignee")
+  events    TimelineEvent[]
+}
+
+model Complaint {
+  id          String    @id @default(cuid())
+  ticketNo    String    @unique
+  title       String
+  description String
+  category    String
+  priority    String
+  status      String
+  locationId  String
+  lat         Float
+  lng         Float
+  landmark    String?
+  reporterId  String
+  assigneeId  String?
+  slaHours    Int
+  dueAt       DateTime
+  resolvedAt  DateTime?
+  rating      Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  reporter User             @relation("Reporter", fields: [reporterId], references: [id])
+  assignee User?            @relation("Assignee", fields: [assigneeId], references: [id])
+  events   TimelineEvent[]
+}
+
+model TimelineEvent {
+  id          String   @id @default(cuid())
+  complaintId String
+  actorId     String?
+  status      String
+  note        String
+  createdAt   DateTime @default(now())
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id])
+}
