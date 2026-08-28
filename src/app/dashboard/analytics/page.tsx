@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ClientGuard } from "@/components/auth/guards";
 import { Card, EmptyState, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
 import { api } from "@/lib/client";
 import { CATEGORIES, STATUS_META, type Status } from "@/lib/constants";
@@ -24,8 +25,9 @@ export default function AnalyticsPage() {
   const statusData = Object.entries(stats.byStatus).map(([status, count]) => ({ name: STATUS_META[status as Status]?.label ?? status, count }));
 
   return (
+    <ClientGuard any={["analytics:view", "analytics:view_hostel"]}>
     <div>
-      <PageHeader title="Analytics" description="Operational metrics from live complaint data." />
+      <PageHeader title="Analytics" description="Hostel and campus metrics are limited to complaints you are authorized to view." />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Total complaints", stats.totals.all],
@@ -153,5 +155,6 @@ export default function AnalyticsPage() {
         </div>
       </section>
     </div>
+    </ClientGuard>
   );
 }

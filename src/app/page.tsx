@@ -1,24 +1,25 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { BrandLockup, SiteFooter } from "@/components/brand/SiteFooter";
 
 const capabilities = [
-  { title: "Report", copy: "Students and faculty pin issues on the BIT campus map with category, priority and evidence." },
+  { title: "Report", copy: "Every authenticated campus member can pin an issue on the BIT map with category, priority and evidence." },
   { title: "Track", copy: "Every ticket has a lifecycle, SLA clock, comments and a verifiable timeline." },
-  { title: "Resolve", copy: "Wardens and estate admin assign staff. Workers update progress until the reporter confirms." },
-  { title: "Improve", copy: "Analytics, hotspots and workload views show where campus services keep failing." },
+  { title: "Resolve", copy: "Staff handle assigned work. Wardens manage hostels. Estate admin runs campus operations." },
+  { title: "Improve", copy: "Role-specific analytics show personal, hostel or campus service performance." },
 ];
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <p className="text-sm font-semibold">BIT Service Ops</p>
-        <div className="flex gap-3">
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-5">
+        <BrandLockup href="/" />
+        <div className="flex shrink-0 gap-3">
           <Link href="/login"><Button variant="secondary">Sign in</Button></Link>
           <Link href="/register"><Button>Student register</Button></Link>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-16">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-16">
         <p className="text-sm font-medium text-[var(--accent)]">Bannari Amman Institute of Technology · Sathyamangalam</p>
         <h1 className="mt-3 max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
           One platform for every campus service issue.
@@ -39,6 +40,7 @@ export default function HomePage() {
           ))}
         </section>
       </main>
+      <SiteFooter />
     </div>
   );
 }

@@ -19,6 +19,7 @@ model User {
   registerNo   String?
   phone        String?
   notifyInApp  Boolean  @default(true)
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now()) @updatedAt
 
@@ -27,6 +28,7 @@ model User {
   events        TimelineEvent[]
   comments      Comment[]
   notifications Notification[]
+  auditLogs     AuditLog[]
 }
 
 model Complaint {
@@ -112,4 +114,19 @@ model Notification {
   complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
 
   @@index([userId, read, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([createdAt])
+  @@index([entity, entityId])
 }

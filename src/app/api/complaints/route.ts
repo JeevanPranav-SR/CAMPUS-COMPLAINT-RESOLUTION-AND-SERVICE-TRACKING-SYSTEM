@@ -1,13 +1,15 @@
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
 import { fail, isAllowedImage, ok, readJson } from "@/lib/http";
 import { notify, syncOverdueSlaNotifications } from "@/lib/notify";
-import { isReporter, wardenLocationIds } from "@/lib/permissions";
+import { writeAudit } from "@/lib/audit";
+import { can, hostelLocationIds, isForbiddenScope } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { complaintScope, ticketInclude, ticketListSelect } from "@/lib/queries";
 import { getSession } from "@/lib/session";
 import { allocateTicketNo } from "@/lib/tickets";
 import { CAMPUS_LOCATIONS, nearestLocation } from "@/lib/campus";
 import type { Prisma } from "@prisma/client";
+import { normalizeRole } from "@/lib/constants";
 
 function searchWhere(q: string): Prisma.ComplaintWhereInput {
   const trimmed = q.trim();
@@ -50,9 +52,14 @@ export async function GET(request: Request) {
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(100, Math.max(5, Number(searchParams.get("pageSize") ?? 12)));
 
+  const whereScope = complaintScope(user, scope);
+  if (isForbiddenScope(whereScope)) {
+    return fail("FORBIDDEN", "You do not have permission to view those complaints.", 403);
+  }
+
   const where: Prisma.ComplaintWhereInput = {
     AND: [
-      complaintScope(user, scope),
+      whereScope,
       status ? { status } : {},
       priority ? { priority } : {},
       category ? { category } : {},
@@ -81,8 +88,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getSession();
   if (!user) return fail("UNAUTHENTICATED", "Sign in required.", 401);
-  if (!isReporter(user.role) && user.role !== "ADMIN") {
-    return fail("FORBIDDEN", "Only students and faculty can file complaints.", 403);
+  if (!can(user, "complaint:create")) {
+    return fail("FORBIDDEN", "You do not have permission to raise a complaint.", 403);
   }
 
   const parsed = await readJson<{
@@ -173,18 +180,18 @@ export async function POST(request: Request) {
   }
   if (!complaint) return fail("CONFLICT", "Could not allocate a ticket number. Please try again.", 409);
 
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN" },
-    select: { id: true },
+  const supervisors = await prisma.user.findMany({
+    where: { active: true, role: { in: ["ADMIN", "WARDEN", "SUPER_ADMIN", "DEPARTMENT_ADMIN"] } },
+    select: { id: true, role: true, hostel: true, department: true },
   });
-  const wardens = await prisma.user.findMany({
-    where: { role: "WARDEN" },
-    select: { id: true, hostel: true },
-  });
-  const recipients = [
-    ...admins.map((item) => item.id),
-    ...wardens.filter((item) => wardenLocationIds(item).includes(locationId)).map((item) => item.id),
-  ];
+  const recipients = supervisors
+    .filter((item) => {
+      const role = normalizeRole(item.role);
+      if (role === "ADMIN") return true;
+      if (role === "WARDEN") return hostelLocationIds(item).includes(locationId);
+      return false;
+    })
+    .map((item) => item.id);
   await Promise.all(
     recipients.map((userId) =>
       notify({
@@ -196,6 +203,13 @@ export async function POST(request: Request) {
       }),
     ),
   );
+  await writeAudit({
+    actorId: user.id,
+    action: "COMPLAINT_CREATE",
+    entity: "Complaint",
+    entityId: complaint.id,
+    detail: `${complaint.ticketNo} submitted`,
+  });
 
   return ok({ complaint }, 201);
 }

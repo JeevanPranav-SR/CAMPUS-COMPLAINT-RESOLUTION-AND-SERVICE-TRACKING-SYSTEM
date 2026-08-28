@@ -12,7 +12,8 @@ import { getLocation } from "@/lib/campus";
 import { remainingLabel } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
-import { allowedTransitions, canAssign } from "@/lib/permissions";
+import { ClientGuard } from "@/components/auth/guards";
+import { allowedTransitions, canAssign, operationalScopeParam } from "@/lib/rbac";
 import type { Status } from "@/lib/constants";
 
 const COLUMNS = [
@@ -46,10 +47,11 @@ export default function OperationsPage() {
 
   async function load() {
     try {
-      const [ticketPayload, staffPayload, mePayload] = await Promise.all([
-        api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100"),
+      const mePayload = await api<{ user: SessionUser }>("/api/auth/me");
+      const scope = operationalScopeParam(mePayload.user);
+      const [ticketPayload, staffPayload] = await Promise.all([
+        api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`),
         api<{ staff: Staff[] }>("/api/staff"),
-        api<{ user: SessionUser }>("/api/auth/me"),
       ]);
       setTickets(ticketPayload.complaints);
       setStaff(staffPayload.staff);
@@ -64,12 +66,13 @@ export default function OperationsPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100"),
-      api<{ staff: Staff[] }>("/api/staff"),
-      api<{ user: SessionUser }>("/api/auth/me"),
-    ])
-      .then(([ticketPayload, staffPayload, mePayload]) => {
+    api<{ user: SessionUser }>("/api/auth/me")
+      .then(async (mePayload) => {
+        const scope = operationalScopeParam(mePayload.user);
+        const [ticketPayload, staffPayload] = await Promise.all([
+          api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`),
+          api<{ staff: Staff[] }>("/api/staff"),
+        ]);
         if (!active) return;
         setTickets(ticketPayload.complaints);
         setStaff(staffPayload.staff);
@@ -112,8 +115,9 @@ export default function OperationsPage() {
   if (error) return <ErrorState message={error} onRetry={load} />;
 
   return (
+    <ClientGuard any={["complaint:assign", "complaint:update_assigned"]}>
     <div>
-      <PageHeader title="Operations" description="Acknowledge, assign staff, work tickets, and mark them resolved." />
+      <PageHeader title="Assignments" description="Acknowledge, assign, work, escalate, and resolve tickets in your scope." />
       <div className="flex gap-3 overflow-x-auto pb-4 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3 xl:grid-cols-6">
         {COLUMNS.map((column) => (
           <section key={column.id} className="min-w-[260px] shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 md:min-w-0">
@@ -126,7 +130,7 @@ export default function OperationsPage() {
                 <p className="text-xs text-[var(--muted)]">No tickets</p>
               ) : (
                 grouped[column.id].map((ticket) => {
-                  const allowed = me ? allowedTransitions(ticket.status as Status, me.role).filter((status) => status !== "CLOSED" && status !== "REOPENED" && status !== "ASSIGNED") : [];
+                  const allowed = me ? allowedTransitions(ticket.status as Status, me, ticket).filter((status) => status !== "CLOSED" && status !== "REOPENED" && status !== "ASSIGNED") : [];
                   return (
                     <article key={ticket.id} className="rounded-md border border-[var(--border)] p-3">
                       <Link href={`/dashboard/complaints/${ticket.id}`} className="block">
@@ -142,7 +146,7 @@ export default function OperationsPage() {
                         {ticket.assignee?.name ? `Assigned: ${ticket.assignee.name}` : "Unassigned"}
                       </p>
                       <p className="text-xs text-[var(--muted)]">{remainingLabel(ticket.dueAt, ticket.status, ticket.resolvedAt)}</p>
-                      {me && canAssign(me.role) && ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "REOPENED"].includes(ticket.status) ? (
+                      {me && canAssign(me) && ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "REOPENED", "ESCALATED"].includes(ticket.status) ? (
                         <div className="mt-2 space-y-2">
                           <Select
                             value={assignTo[ticket.id] ?? ticket.assigneeId ?? ""}
@@ -194,5 +198,6 @@ export default function OperationsPage() {
         ))}
       </div>
     </div>
+    </ClientGuard>
   );
 }

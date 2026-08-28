@@ -36,13 +36,19 @@ async function main() {
     data: { name: "Lakshmi Warden", email: "lakshmi.w@bitsathy.ac.in", passwordHash: password.warden, role: "WARDEN", department: "Office of the Warden", hostel: "Gents Hostels", phone: "99429 21210" },
   });
   const priya = await prisma.user.create({
-    data: { name: "Priya S", email: "priya.s@bitsathy.in", passwordHash: password.student, role: "STUDENT", department: "CSE", registerNo: "7376221CS201" },
+    data: { name: "Priya S", email: "priya.s@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "CSE", registerNo: "7376221CS201" },
+  });
+  await prisma.user.create({
+    data: { name: "Arjun K", email: "arjun.k@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "AIML", registerNo: "7376222AM045" },
+  });
+  await prisma.user.create({
+    data: { name: "Sneha P", email: "sneha.p@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "AIDS", registerNo: "7376222AD112" },
   });
   const karthik = await prisma.user.create({
-    data: { name: "Karthik R", email: "karthik.r@bitsathy.in", passwordHash: password.student, role: "STUDENT", department: "IT", hostel: "Sapphire", registerNo: "7376221IT118" },
+    data: { name: "Karthik R", email: "karthik.r@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "IT", hostel: "Sapphire", registerNo: "7376221IT118" },
   });
   const divya = await prisma.user.create({
-    data: { name: "Divya M", email: "divya.m@bitsathy.in", passwordHash: password.student, role: "STUDENT", department: "ECE", hostel: "Cauvery", registerNo: "7376221EC054" },
+    data: { name: "Divya M", email: "divya.m@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "ECE", hostel: "Cauvery", registerNo: "7376221EC054" },
   });
   const meena = await prisma.user.create({
     data: { name: "Dr. Meena K", email: "meena.k@bitsathy.ac.in", passwordHash: password.faculty, role: "FACULTY", department: "ECE" },

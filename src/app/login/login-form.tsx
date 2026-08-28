@@ -6,15 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { api } from "@/lib/client";
+import { DEMO_ACCOUNTS } from "@/lib/constants";
 import { safeDashboardPath } from "@/lib/redirect";
-
-const DEMOS = [
-  { label: "Student", email: "priya.s@bitsathy.in", password: "student123" },
-  { label: "Faculty", email: "meena.k@bitsathy.ac.in", password: "faculty123" },
-  { label: "Staff", email: "ramesh.m@bitsathy.ac.in", password: "staff123" },
-  { label: "Warden", email: "lakshmi.w@bitsathy.ac.in", password: "warden123" },
-  { label: "Estate admin", email: "admin@bitsathy.ac.in", password: "admin123" },
-];
+import { BrandLockup, SiteFooter } from "@/components/brand/SiteFooter";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -23,7 +17,6 @@ export default function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const showDemos = process.env.NODE_ENV === "development";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -41,9 +34,10 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="flex min-h-screen flex-col">
+    <div className="grid min-h-0 flex-1 lg:grid-cols-2">
       <div className="hidden bg-[var(--primary)] p-12 text-white lg:flex lg:flex-col lg:justify-between">
-        <p className="text-sm font-semibold tracking-wide">BIT Service Ops</p>
+        <BrandLockup light href="/" />
         <div>
           <h1 className="text-4xl font-semibold leading-tight">One platform for every campus service issue.</h1>
           <p className="mt-4 max-w-md text-sm text-white/80">
@@ -68,9 +62,10 @@ export default function LoginForm() {
           <Button disabled={busy} className="w-full">
             {busy ? "Signing in…" : "Sign in"}
           </Button>
-          {showDemos ? (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-[var(--muted)]">Sample college mail IDs for checking</p>
             <div className="grid grid-cols-2 gap-2">
-              {DEMOS.map((demo) => (
+              {DEMO_ACCOUNTS.map((demo) => (
                 <button
                   key={demo.email}
                   type="button"
@@ -80,16 +75,20 @@ export default function LoginForm() {
                     setPassword(demo.password);
                   }}
                 >
-                  {demo.label}
+                  <span className="block font-medium">{demo.label}</span>
+                  <span className="mt-0.5 block truncate text-[10px] text-[var(--muted)]">{demo.email}</span>
+                  <span className="block truncate text-[10px] text-[var(--muted)]">{demo.password}</span>
                 </button>
               ))}
             </div>
-          ) : null}
+          </div>
           <p className="text-sm text-[var(--muted)]">
             Student? <Link className="text-[var(--accent)]" href="/register">Create an account</Link>
           </p>
         </form>
       </div>
+    </div>
+    <SiteFooter />
     </div>
   );
 }

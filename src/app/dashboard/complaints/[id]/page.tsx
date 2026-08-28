@@ -11,7 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/client";
 import { CATEGORIES, LIFECYCLE, type Status } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
-import { allowedTransitions, canAssign, isOps, isReporter } from "@/lib/permissions";
+import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rbac";
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
@@ -139,10 +139,10 @@ export default function TicketDetailPage() {
 
   const location = getLocation(ticket.locationId);
   const unit = CATEGORIES.find((item) => item.id === ticket.category)?.unit;
-  const allowed = allowedTransitions(ticket.status as Status, me.role);
+  const allowed = allowedTransitions(ticket.status as Status, me, ticket);
   const sla = slaState(ticket.dueAt, ticket.status, ticket.resolvedAt);
-  const ops = isOps(me.role);
-  const reporter = isReporter(me.role);
+  const ops = canUpdateWork(me, ticket) || canAssign(me);
+  const owner = isOwner(me, ticket);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -241,7 +241,7 @@ export default function TicketDetailPage() {
         {ops ? (
           <Card className="space-y-3">
             <h2 className="text-sm font-semibold">Operations</h2>
-            {canAssign(me.role) ? (
+            {canAssign(me) ? (
               <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
                 <option value="">Select staff</option>
                 {staff.map((person) => (
@@ -258,7 +258,7 @@ export default function TicketDetailPage() {
               </Button>
             ) : null}
             <div className="flex flex-wrap gap-2">
-              {canAssign(me.role) ? (
+              {canAssign(me) ? (
                 <Button size="sm" disabled={busy || !assigneeId} onClick={() => update("ASSIGNED")}>
                   Assign staff
                 </Button>
@@ -271,7 +271,7 @@ export default function TicketDetailPage() {
             </div>
           </Card>
         ) : null}
-        {reporter && ticket.status === "RESOLVED" ? (
+        {owner && ticket.status === "RESOLVED" ? (
           <Card className="space-y-3">
             <h2 className="text-sm font-semibold">Has this issue been resolved?</h2>
             <label className="text-sm">

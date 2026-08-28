@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ClientGuard } from "@/components/auth/guards";
 import CampusMap from "@/components/map/CampusMap";
 import { Button } from "@/components/ui/button";
 import { Card, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
@@ -12,6 +13,8 @@ import { CATEGORIES } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
 import { remainingLabel } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
+import type { SessionUser } from "@/lib/session";
+import { operationalScopeParam } from "@/lib/rbac";
 
 type Filter = "ALL" | "OPEN" | "HIGH" | "OVERDUE" | "RESOLVED";
 
@@ -25,13 +28,26 @@ export default function MapPage() {
   const [now, setNow] = useState(0);
 
   useEffect(() => {
-    api<{ complaints: Ticket[] }>("/api/complaints?pageSize=100")
+    let active = true;
+    api<{ user: SessionUser }>("/api/auth/me")
       .then((payload) => {
+        const scope = operationalScopeParam(payload.user);
+        return api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`);
+      })
+      .then((payload) => {
+        if (!active) return;
         setTickets(payload.complaints);
         setNow(Date.now());
       })
-      .catch((err: Error) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err: Error) => {
+        if (active) setError(err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const visible = useMemo(() => {
@@ -54,8 +70,9 @@ export default function MapPage() {
   if (error) return <ErrorState message={error} />;
 
   return (
+    <ClientGuard permission="complaint:view_own">
     <div>
-      <PageHeader title="Campus map" description="Operational GIS for BIT Sathy. Pins are live complaints, not decoration." />
+      <PageHeader title="Campus map" description="Pins show only complaints in your access scope." />
       <div className="mb-4 flex flex-wrap gap-2">
         {(["ALL", "OPEN", "HIGH", "OVERDUE", "RESOLVED"] as Filter[]).map((item) => (
           <Button key={item} size="sm" variant={filter === item ? "primary" : "secondary"} onClick={() => setFilter(item)}>
@@ -99,5 +116,6 @@ export default function MapPage() {
         </aside>
       </div>
     </div>
+    </ClientGuard>
   );
 }

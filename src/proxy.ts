@@ -46,5 +46,9 @@ export const proxyConfig = {
     "/api/account/:path*",
     "/api/account",
     "/api/auth/me",
+    "/api/users/:path*",
+    "/api/users",
+    "/api/audit/:path*",
+    "/api/audit",
   ],
 };

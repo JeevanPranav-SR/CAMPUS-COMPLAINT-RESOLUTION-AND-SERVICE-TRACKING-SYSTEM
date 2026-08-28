@@ -1,6 +1,14 @@
 import { fail, ok, readJson } from "@/lib/http";
 import { notify } from "@/lib/notify";
-import { allowedTransitions, canAssign, canViewComplaint, canUpdateWork, isReporter } from "@/lib/permissions";
+import { writeAudit } from "@/lib/audit";
+import {
+  allowedTransitions,
+  can,
+  canAssign,
+  canUpdateWork,
+  canViewComplaint,
+  isOwner,
+} from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { ticketInclude } from "@/lib/queries";
 import { getSession } from "@/lib/session";
@@ -17,15 +25,15 @@ export async function GET(_request: Request, { params }: Params) {
   if (!complaint) return fail("NOT_FOUND", "Complaint not found.", 404);
   if (!canViewComplaint(user, complaint)) return fail("FORBIDDEN", "You cannot view this complaint.", 403);
 
-  const staff = canUpdateWork(user.role)
+  const staff = canAssign(user)
     ? await prisma.user.findMany({
-        where: { role: { in: ["STAFF", "WARDEN"] } },
+        where: { active: true, role: "STAFF" },
         select: { id: true, name: true, department: true, role: true },
         orderBy: { name: "asc" },
       })
     : [];
 
-  return ok({ complaint, staff });
+  return ok({ complaint, staff, allowed: allowedTransitions(complaint.status as Status, user, complaint) });
 }
 
 export async function PATCH(request: Request, { params }: Params) {
@@ -48,20 +56,23 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!existing) return fail("NOT_FOUND", "Complaint not found.", 404);
   if (!canViewComplaint(user, existing)) return fail("FORBIDDEN", "You cannot update this complaint.", 403);
 
-  if (user.role === "STAFF" && existing.assigneeId && existing.assigneeId !== user.id) {
+  if (user.role === "STAFF" && existing.assigneeId && existing.assigneeId !== user.id && !isOwner(user, existing)) {
     return fail("FORBIDDEN", "Staff can only update tickets assigned to them.", 403);
   }
 
   let nextStatus = existing.status as Status;
   let assigneeId = existing.assigneeId;
   const note = body.note?.trim() || body.reason?.trim() || "";
-  const override = body.override === true && user.role === "ADMIN" && note.length >= 8;
+  const override = body.override === true && can(user, "complaint:view_all") && note.length >= 8;
 
   if (body.assigneeId !== undefined) {
     const selfAssign = user.role === "STAFF" && body.assigneeId === user.id;
-    if (!canAssign(user.role) && !selfAssign) return fail("FORBIDDEN", "You cannot assign staff.", 403);
+    if (!canAssign(user) && !selfAssign) return fail("FORBIDDEN", "You cannot assign staff.", 403);
+    if (selfAssign && !canViewComplaint(user, existing)) {
+      return fail("FORBIDDEN", "You cannot take this ticket.", 403);
+    }
     assigneeId = body.assigneeId;
-    if (body.assigneeId && ["SUBMITTED", "ACKNOWLEDGED", "REOPENED", "ASSIGNED"].includes(existing.status)) {
+    if (body.assigneeId && ["SUBMITTED", "ACKNOWLEDGED", "REOPENED", "ASSIGNED", "ESCALATED"].includes(existing.status)) {
       nextStatus = "ASSIGNED";
     }
   }
@@ -70,19 +81,19 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!STATUSES.includes(body.status)) {
       return fail("VALIDATION", "Select a valid status.", 400);
     }
-    const allowed = allowedTransitions(existing.status as Status, user.role);
+    const allowed = allowedTransitions(existing.status as Status, user, existing);
     const selfAssign =
       user.role === "STAFF" &&
       body.status === "ASSIGNED" &&
       body.assigneeId === user.id &&
       allowed.includes("ASSIGNED");
     if (!override && !allowed.includes(body.status) && !selfAssign) {
-      return fail("FORBIDDEN", "That status change is not allowed.", 400);
+      return fail("FORBIDDEN", "That status change is not allowed.", 403);
     }
-    if (isReporter(user.role) && body.status === "REOPENED" && !note) {
+    if (isOwner(user, existing) && body.status === "REOPENED" && !note) {
       return fail("VALIDATION", "Please explain why the issue is not resolved.", 400);
     }
-    if (isReporter(user.role) && body.status === "CLOSED" && body.rating && (body.rating < 1 || body.rating > 5)) {
+    if (isOwner(user, existing) && body.status === "CLOSED" && body.rating && (body.rating < 1 || body.rating > 5)) {
       return fail("VALIDATION", "Rating must be between 1 and 5.", 400);
     }
     nextStatus = body.status;
@@ -92,7 +103,10 @@ export async function PATCH(request: Request, { params }: Params) {
     return fail("VALIDATION", "Select a staff member before assigning.", 400);
   }
   if (user.role === "STAFF" && nextStatus === "IN_PROGRESS" && assigneeId !== user.id) {
-    return fail("FORBIDDEN", "Staff can only start work on tickets assigned to them.", 403);
+    return fail("FORBIDDEN", "You can only start work on tickets assigned to you.", 403);
+  }
+  if (nextStatus === "RESOLVED" && !can(user, "complaint:resolve") && !canUpdateWork(user, existing)) {
+    return fail("FORBIDDEN", "You cannot resolve this complaint.", 403);
   }
 
   if (
@@ -116,7 +130,9 @@ export async function PATCH(request: Request, { params }: Params) {
         ? "VERIFY"
         : nextStatus === "ASSIGNED" && assigneeId !== existing.assigneeId
           ? "ASSIGN"
-          : "STATUS";
+          : nextStatus === "ESCALATED"
+            ? "ESCALATE"
+            : "STATUS";
 
   const complaint = await prisma.complaint.update({
     where: { id },
@@ -157,9 +173,24 @@ export async function PATCH(request: Request, { params }: Params) {
     include: ticketInclude,
   });
 
+  await writeAudit({
+    actorId: user.id,
+    action: `COMPLAINT_${action}`,
+    entity: "Complaint",
+    entityId: complaint.id,
+    detail: `${complaint.ticketNo} ${existing.status} → ${nextStatus}`,
+  });
+
   const recipients = new Set<string>();
   recipients.add(complaint.reporterId);
   if (complaint.assigneeId) recipients.add(complaint.assigneeId);
+  if (nextStatus === "ESCALATED") {
+    const supers = await prisma.user.findMany({
+      where: { active: true, role: { in: ["ADMIN", "SUPER_ADMIN"] } },
+      select: { id: true },
+    });
+    supers.forEach((item) => recipients.add(item.id));
+  }
   await Promise.all(
     [...recipients].map((userId) =>
       notify({
@@ -174,7 +205,9 @@ export async function PATCH(request: Request, { params }: Params) {
               ? `${complaint.ticketNo} was reopened and needs attention.`
               : nextStatus === "ASSIGNED"
                 ? `${complaint.ticketNo} was assigned to ${complaint.assignee?.name ?? "staff"}.`
-                : `${complaint.ticketNo} is now ${nextStatus.replace(/_/g, " ").toLowerCase()}.`,
+                : nextStatus === "ESCALATED"
+                  ? `${complaint.ticketNo} was escalated.`
+                  : `${complaint.ticketNo} is now ${nextStatus.replace(/_/g, " ").toLowerCase()}.`,
       }),
     ),
   );

@@ -1,15 +1,16 @@
 import { getLocation } from "@/lib/campus";
 import { fail, ok } from "@/lib/http";
 import { syncOverdueSlaNotifications } from "@/lib/notify";
-import { isReporter } from "@/lib/permissions";
+import { analyticsScope, canAny } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { analyticsScope } from "@/lib/queries";
 import { getSession } from "@/lib/session";
 
 export async function GET() {
   const user = await getSession();
   if (!user) return fail("UNAUTHENTICATED", "Sign in required.", 401);
-  if (isReporter(user.role)) return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);
+  if (!canAny(user, ["analytics:view", "analytics:view_hostel"])) {
+    return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);
+  }
 
   await syncOverdueSlaNotifications();
 
@@ -66,7 +67,7 @@ export async function GET() {
     .map((item) => (item.resolvedAt!.getTime() - item.createdAt.getTime()) / 3600000);
   const avgResolution = hours.length ? hours.reduce((a, b) => a + b, 0) / hours.length : 0;
 
-  const staffWhere = user.role === "STAFF" ? { id: user.id } : { role: "STAFF" as const };
+  const staffWhere = user.role === "STAFF" ? { id: user.id } : { role: "STAFF" };
   const staff = await prisma.user.findMany({
     where: staffWhere,
     select: { id: true, name: true, department: true },

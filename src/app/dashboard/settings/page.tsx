@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
+import { ROLE_META } from "@/lib/constants";
 import { Field, Input } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/client";
@@ -23,7 +24,6 @@ export default function SettingsPage() {
   const [user, setUser] = useState<Account | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [hostel, setHostel] = useState("");
   const [notifyInApp, setNotifyInApp] = useState(true);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -36,7 +36,6 @@ export default function SettingsPage() {
         setUser(payload.user);
         setName(payload.user.name);
         setPhone(payload.user.phone ?? "");
-        setHostel(payload.user.hostel ?? "");
         setNotifyInApp(payload.user.notifyInApp);
         setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
       })
@@ -48,7 +47,7 @@ export default function SettingsPage() {
     try {
       await api("/api/account", {
         method: "PATCH",
-        body: JSON.stringify({ name, phone, hostel, notifyInApp }),
+        body: JSON.stringify({ name, phone, notifyInApp }),
       });
       toast("Profile updated.");
     } catch (err) {
@@ -82,7 +81,7 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Settings" description="Profile, password, notifications and appearance." />
+      <PageHeader title="Profile" description="Update your name, phone, password and appearance. Role and hostel scope cannot be changed here." />
       <form onSubmit={saveProfile} className="space-y-4">
         <Card className="space-y-3">
           <h2 className="text-sm font-semibold">Profile</h2>
@@ -92,11 +91,17 @@ export default function SettingsPage() {
           <Field label="Email">
             <Input value={user.email} disabled />
           </Field>
+          <Field label="Role">
+            <Input value={ROLE_META[user.role as keyof typeof ROLE_META]?.label ?? user.role} disabled />
+          </Field>
+          <Field label="Department">
+            <Input value={user.department ?? "—"} disabled />
+          </Field>
           <Field label="Phone">
             <Input value={phone} onChange={(event) => setPhone(event.target.value)} />
           </Field>
           <Field label="Hostel / block">
-            <Input value={hostel} onChange={(event) => setHostel(event.target.value)} />
+            <Input value={user.hostel ?? "—"} disabled />
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={notifyInApp} onChange={(event) => setNotifyInApp(event.target.checked)} />

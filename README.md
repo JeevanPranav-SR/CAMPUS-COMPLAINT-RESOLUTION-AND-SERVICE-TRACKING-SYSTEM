@@ -198,13 +198,15 @@ npm start
 
 ## Demo Accounts
 
-Seeded for local / viva demonstration only. Students use `@bitsathy.in`. Staff and faculty use `@bitsathy.ac.in`.
+Seeded for local / viva demonstration only. All campus accounts use `@bitsathy.ac.in`.
 
 | Role | Email | Password |
 | --- | --- | --- |
-| Student (CSE) | `priya.s@bitsathy.in` | `student123` |
-| Student (Sapphire) | `karthik.r@bitsathy.in` | `student123` |
-| Student (Cauvery) | `divya.m@bitsathy.in` | `student123` |
+| Student (CSE) | `priya.s@bitsathy.ac.in` | `student123` |
+| Student (AIML) | `arjun.k@bitsathy.ac.in` | `student123` |
+| Student (AIDS) | `sneha.p@bitsathy.ac.in` | `student123` |
+| Student (Sapphire) | `karthik.r@bitsathy.ac.in` | `student123` |
+| Student (Cauvery) | `divya.m@bitsathy.ac.in` | `student123` |
 | Faculty (ECE) | `meena.k@bitsathy.ac.in` | `faculty123` |
 | Electrical staff | `ramesh.m@bitsathy.ac.in` | `staff123` |
 | Civil/plumbing staff | `arun.p@bitsathy.ac.in` | `staff123` |

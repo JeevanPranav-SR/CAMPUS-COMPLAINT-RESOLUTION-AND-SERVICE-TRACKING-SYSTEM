@@ -2,6 +2,7 @@ import { fail, ok, readJson } from "@/lib/http";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createSession, getSession } from "@/lib/session";
+import { normalizeRole } from "@/lib/constants";
 
 export async function GET() {
   const session = await getSession();
@@ -21,7 +22,7 @@ export async function GET() {
     },
   });
   if (!user) return fail("NOT_FOUND", "Account not found.", 404);
-  return ok({ user });
+  return ok({ user: { ...user, role: normalizeRole(user.role) } });
 }
 
 export async function PATCH(request: Request) {
@@ -32,6 +33,8 @@ export async function PATCH(request: Request) {
     name?: string;
     phone?: string;
     hostel?: string;
+    role?: string;
+    department?: string;
     notifyInApp?: boolean;
     currentPassword?: string;
     newPassword?: string;
@@ -56,7 +59,6 @@ export async function PATCH(request: Request) {
     data: {
       name: body.name?.trim() || undefined,
       phone: body.phone?.trim() || undefined,
-      hostel: body.hostel?.trim() || undefined,
       notifyInApp: typeof body.notifyInApp === "boolean" ? body.notifyInApp : undefined,
     },
   });
@@ -65,10 +67,11 @@ export async function PATCH(request: Request) {
     id: updated.id,
     name: updated.name,
     email: updated.email,
-    role: updated.role as typeof session.role,
+    role: session.role,
     department: updated.department,
     hostel: updated.hostel,
     registerNo: updated.registerNo,
+    permissions: session.permissions,
   });
 
   return ok({
@@ -76,7 +79,7 @@ export async function PATCH(request: Request) {
       id: updated.id,
       name: updated.name,
       email: updated.email,
-      role: updated.role,
+      role: normalizeRole(updated.role),
       department: updated.department,
       hostel: updated.hostel,
       registerNo: updated.registerNo,

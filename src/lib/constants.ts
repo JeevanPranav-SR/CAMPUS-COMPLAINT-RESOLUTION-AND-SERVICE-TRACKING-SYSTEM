@@ -1,12 +1,70 @@
 export const ROLES = ["STUDENT", "FACULTY", "STAFF", "WARDEN", "ADMIN"] as const;
 export type Role = (typeof ROLES)[number];
 
+export function normalizeRole(role: string): Role {
+  if (role === "DEPARTMENT_ADMIN") return "WARDEN";
+  if (role === "SUPER_ADMIN") return "ADMIN";
+  if ((ROLES as readonly string[]).includes(role)) return role as Role;
+  return "STUDENT";
+}
+
+/** UG / MBA branches offered at Bannari Amman Institute of Technology, Sathyamangalam. */
+export const DEPARTMENTS = [
+  { code: "AIDS", name: "Artificial Intelligence and Data Science" },
+  { code: "AIML", name: "Artificial Intelligence and Machine Learning" },
+  { code: "Agri", name: "Agricultural Engineering" },
+  { code: "BME", name: "Biomedical Engineering" },
+  { code: "Biotech", name: "Biotechnology" },
+  { code: "Civil", name: "Civil Engineering" },
+  { code: "CSBS", name: "Computer Science and Business Systems" },
+  { code: "CSD", name: "Computer Science and Design" },
+  { code: "CSE", name: "Computer Science and Engineering" },
+  { code: "CT", name: "Computer Technology" },
+  { code: "ECE", name: "Electronics and Communication Engineering" },
+  { code: "EEE", name: "Electrical and Electronics Engineering" },
+  { code: "EIE", name: "Electronics and Instrumentation Engineering" },
+  { code: "Fashion Tech", name: "Fashion Technology" },
+  { code: "Food Tech", name: "Food Technology" },
+  { code: "ISE", name: "Information Science and Engineering" },
+  { code: "IT", name: "Information Technology" },
+  { code: "MBA", name: "Master of Business Administration" },
+  { code: "Mechanical", name: "Mechanical Engineering" },
+  { code: "Mechatronics", name: "Mechatronics Engineering" },
+  { code: "Textile", name: "Textile Technology" },
+] as const;
+
+export type DepartmentCode = (typeof DEPARTMENTS)[number]["code"];
+const DEPARTMENT_CODES = new Set<string>(DEPARTMENTS.map((item) => item.code));
+
+export function isDepartment(value: string): value is DepartmentCode {
+  return DEPARTMENT_CODES.has(value);
+}
+
+export const COLLEGE_EMAIL_DOMAIN = "bitsathy.ac.in";
+
+export function isCollegeEmail(email: string) {
+  return email.toLowerCase().trim().endsWith(`@${COLLEGE_EMAIL_DOMAIN}`);
+}
+
+export const DEMO_ACCOUNTS = [
+  { label: "Student (CSE)", email: `priya.s@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
+  { label: "Student (AIML)", email: `arjun.k@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
+  { label: "Student (AIDS)", email: `sneha.p@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
+  { label: "Student (IT)", email: `karthik.r@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
+  { label: "Faculty", email: `meena.k@${COLLEGE_EMAIL_DOMAIN}`, password: "faculty123" },
+  { label: "Staff", email: `ramesh.m@${COLLEGE_EMAIL_DOMAIN}`, password: "staff123" },
+  { label: "Warden", email: `lakshmi.w@${COLLEGE_EMAIL_DOMAIN}`, password: "warden123" },
+  { label: "Estate admin", email: `admin@${COLLEGE_EMAIL_DOMAIN}`, password: "admin123" },
+] as const;
+
 export const STATUSES = [
   "SUBMITTED",
   "ACKNOWLEDGED",
   "ASSIGNED",
   "IN_PROGRESS",
   "ON_HOLD",
+  "ESCALATED",
+  "REJECTED",
   "RESOLVED",
   "REOPENED",
   "CLOSED",
@@ -36,10 +94,12 @@ export const CATEGORIES = [
 
 export const STATUS_META: Record<Status, { label: string; tone: "slate" | "blue" | "violet" | "amber" | "green" | "red" | "orange" }> = {
   SUBMITTED: { label: "Submitted", tone: "slate" },
-  ACKNOWLEDGED: { label: "Acknowledged", tone: "blue" },
+  ACKNOWLEDGED: { label: "Under review", tone: "blue" },
   ASSIGNED: { label: "Assigned", tone: "violet" },
   IN_PROGRESS: { label: "In progress", tone: "amber" },
   ON_HOLD: { label: "On hold", tone: "orange" },
+  ESCALATED: { label: "Escalated", tone: "red" },
+  REJECTED: { label: "Rejected", tone: "red" },
   RESOLVED: { label: "Resolved", tone: "green" },
   REOPENED: { label: "Reopened", tone: "red" },
   CLOSED: { label: "Closed", tone: "green" },
@@ -53,11 +113,11 @@ export const PRIORITY_META: Record<Priority, { label: string; tone: "red" | "amb
 };
 
 export const ROLE_META: Record<Role, { label: string; blurb: string }> = {
-  STUDENT: { label: "Student", blurb: "Report and track campus service issues" },
-  FACULTY: { label: "Faculty", blurb: "Report academic-block issues" },
-  STAFF: { label: "Staff", blurb: "Work assigned field tickets" },
-  WARDEN: { label: "Warden", blurb: "Hostel and residential operations" },
-  ADMIN: { label: "Estate admin", blurb: "Campus-wide service operations" },
+  STUDENT: { label: "Student", blurb: "Raise and track your own campus complaints" },
+  FACULTY: { label: "Faculty", blurb: "Raise and track your own campus complaints" },
+  STAFF: { label: "Staff", blurb: "Raise complaints and work tickets assigned to you" },
+  WARDEN: { label: "Warden", blurb: "Raise complaints and manage authorised hostel operations" },
+  ADMIN: { label: "Estate admin", blurb: "Raise complaints and manage campus-wide service operations" },
 };
 
 export const LIFECYCLE: Status[] = [

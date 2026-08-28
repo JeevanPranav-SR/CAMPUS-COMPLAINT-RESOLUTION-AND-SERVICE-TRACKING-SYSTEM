@@ -7,7 +7,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Campus Service Operations | BIT Sathy",
+  title: "BIT NEXUS | Bannari Amman Institute of Technology",
   description:
     "Campus complaint resolution and service tracking for Bannari Amman Institute of Technology, Sathyamangalam.",
 };

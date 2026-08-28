@@ -1,6 +1,6 @@
 import { fail, ok, readJson } from "@/lib/http";
 import { notify } from "@/lib/notify";
-import { canViewComplaint } from "@/lib/permissions";
+import { can, canViewComplaint } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { ticketInclude } from "@/lib/queries";
 import { getSession } from "@/lib/session";
@@ -19,6 +19,7 @@ export async function POST(request: Request, { params }: Params) {
   const complaint = await prisma.complaint.findUnique({ where: { id } });
   if (!complaint) return fail("NOT_FOUND", "Complaint not found.", 404);
   if (!canViewComplaint(user, complaint)) return fail("FORBIDDEN", "You cannot comment on this complaint.", 403);
+  if (!can(user, "complaint:comment")) return fail("FORBIDDEN", "You cannot comment on this complaint.", 403);
 
   await prisma.comment.create({ data: { complaintId: id, actorId: user.id, body: text } });
   await prisma.timelineEvent.create({

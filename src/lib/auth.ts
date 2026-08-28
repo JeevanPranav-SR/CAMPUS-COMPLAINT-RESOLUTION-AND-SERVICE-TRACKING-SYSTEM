@@ -1,7 +1,8 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { createSession, getSession, type SessionUser } from "./session";
-import type { Role } from "./constants";
+import { normalizeRole } from "./constants";
+import { permissionsFor } from "./rbac";
 
 export type { SessionUser };
 export { getSession, createSession } from "./session";
@@ -25,17 +26,19 @@ export async function requireUser() {
 
 export async function loginWithCredentials(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-  if (!user) return null;
+  if (!user || user.active === false) return null;
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) return null;
+  const role = normalizeRole(user.role);
   const session: SessionUser = {
     id: user.id,
     name: user.name,
     email: user.email,
-    role: user.role as Role,
+    role,
     department: user.department,
     hostel: user.hostel,
     registerNo: user.registerNo,
+    permissions: permissionsFor(role),
   };
   await createSession(session);
   return session;

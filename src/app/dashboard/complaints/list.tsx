@@ -11,7 +11,7 @@ import { api } from "@/lib/client";
 import { CATEGORIES, STATUSES, PRIORITIES, categoryLabel } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
 import { formatDateTime, remainingLabel } from "@/lib/utils";
-import { isReporter } from "@/lib/permissions";
+import { can } from "@/lib/rbac";
 import type { Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
 
@@ -24,6 +24,7 @@ export default function ComplaintsList() {
   const category = searchParams.get("category") ?? "";
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
+  const scope = searchParams.get("scope") ?? "";
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const [draftQ, setDraftQ] = useState(q);
   const [prevQ, setPrevQ] = useState(q);
@@ -39,7 +40,7 @@ export default function ComplaintsList() {
 
   function replaceFilters(next: Record<string, string>, nextPage = 1) {
     const params = new URLSearchParams();
-    const merged = { q, status, priority, category, from, to, ...next };
+    const merged = { q, status, priority, category, from, to, scope, ...next };
     Object.entries(merged).forEach(([key, value]) => {
       if (value) params.set(key, value);
     });
@@ -63,6 +64,7 @@ export default function ComplaintsList() {
     if (category) params.set("category", category);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    if (scope) params.set("scope", scope);
     api<{ complaints: Ticket[]; total: number }>("/api/complaints?" + params.toString())
       .then((payload) => {
         if (!active) return;
@@ -79,21 +81,33 @@ export default function ComplaintsList() {
     return () => {
       active = false;
     };
-  }, [q, status, priority, category, from, to, page]);
+  }, [q, status, priority, category, from, to, scope, page]);
 
   const pages = Math.max(1, Math.ceil(total / 12));
-  const reporter = me ? isReporter(me.role) : false;
+  const canCreate = me ? can(me, "complaint:create") : false;
   const activeFilters = Boolean(q || status || priority || category || from || to);
+  const title =
+    scope === "mine"
+      ? "My complaints"
+      : scope === "assigned"
+        ? "Assigned work"
+        : scope === "work"
+          ? "Assigned work"
+          : scope === "hostel" || scope === "department"
+            ? "Hostel complaints"
+            : scope === "all"
+              ? "All campus complaints"
+              : "Complaints";
 
   return (
     <div>
       <PageHeader
-        title="Complaints"
-        description="Search, filter and track campus service tickets."
+        title={title}
+        description="Only complaints in your access scope are listed here."
         actions={
-          reporter ? (
+          canCreate ? (
             <Link href="/dashboard/complaints/new">
-              <Button>Report issue</Button>
+              <Button>Raise complaint</Button>
             </Link>
           ) : null
         }
@@ -135,7 +149,7 @@ export default function ComplaintsList() {
         <Input type="date" value={to} onChange={(event) => replaceFilters({ to: event.target.value })} aria-label="To date" />
       </div>
       {activeFilters ? (
-        <button className="mb-4 text-sm text-[var(--accent)]" onClick={() => router.replace("/dashboard/complaints")}>
+        <button className="mb-4 text-sm text-[var(--accent)]" onClick={() => router.replace(scope ? `/dashboard/complaints?scope=${scope}` : "/dashboard/complaints")}>
           Clear filters
         </button>
       ) : null}

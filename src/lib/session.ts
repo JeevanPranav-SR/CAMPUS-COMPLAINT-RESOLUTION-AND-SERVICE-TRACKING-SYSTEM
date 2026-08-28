@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import type { Role } from "./constants";
+import { normalizeRole, type Role } from "./constants";
+import { permissionsFor, type Permission } from "./rbac";
 import { prisma } from "./prisma";
 
 export type SessionUser = {
@@ -11,6 +12,7 @@ export type SessionUser = {
   department: string | null;
   hostel: string | null;
   registerNo: string | null;
+  permissions: Permission[];
 };
 
 export const SESSION_COOKIE = "bit_session";
@@ -49,15 +51,17 @@ export async function getSession(): Promise<SessionUser | null> {
   const parsed = await readSession(store.get(SESSION_COOKIE)?.value);
   if (!parsed) return null;
   const user = await prisma.user.findUnique({ where: { id: parsed.id } });
-  if (!user) return null;
+  if (!user || user.active === false) return null;
+  const role = normalizeRole(user.role);
   return {
     id: user.id,
     name: user.name,
     email: user.email,
-    role: user.role as Role,
+    role,
     department: user.department,
     hostel: user.hostel,
     registerNo: user.registerNo,
+    permissions: permissionsFor(role),
   };
 }
 

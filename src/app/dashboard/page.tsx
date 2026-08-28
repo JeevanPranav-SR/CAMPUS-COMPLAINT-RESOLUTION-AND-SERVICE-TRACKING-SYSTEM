@@ -11,12 +11,50 @@ import { getLocation } from "@/lib/campus";
 import { greeting, remainingLabel } from "@/lib/utils";
 import type { NotificationItem, StatsPayload, Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
-import { isReporter } from "@/lib/permissions";
+import { can, canAny, operationalScopeParam } from "@/lib/rbac";
+
+function dashboardCopy(role: SessionUser["role"]) {
+  if (role === "STUDENT") {
+    return {
+      description: "Raise a complaint and track its progress. You only see tickets you filed.",
+      primary: { href: "/dashboard/complaints/new", label: "+ Raise complaint" },
+      stats: "own" as const,
+    };
+  }
+  if (role === "FACULTY") {
+    return {
+      description: "Raise campus issues and track the complaints you have filed.",
+      primary: { href: "/dashboard/complaints/new", label: "+ Raise complaint" },
+      stats: "own" as const,
+    };
+  }
+  if (role === "STAFF") {
+    return {
+      description: "File your own issues and work tickets assigned to you.",
+      primary: { href: "/dashboard/operations", label: "Open assigned work" },
+      stats: "work" as const,
+    };
+  }
+  if (role === "WARDEN") {
+    return {
+      description: "Raise your own issues and manage authorised hostel complaints.",
+      primary: { href: "/dashboard/operations", label: "Manage hostel work" },
+      stats: "ops" as const,
+    };
+  }
+  return {
+    description: "Raise issues, run campus operations, and monitor service performance.",
+    primary: { href: "/dashboard/complaints?scope=all", label: "View all complaints" },
+    stats: "ops" as const,
+  };
+}
 
 export default function OverviewPage() {
   const [me, setMe] = useState<SessionUser | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [ticketTotal, setTicketTotal] = useState(0);
+  const [mineTickets, setMineTickets] = useState<Ticket[]>([]);
+  const [mineTotal, setMineTotal] = useState(0);
+  const [opsTickets, setOpsTickets] = useState<Ticket[]>([]);
+  const [opsTotal, setOpsTotal] = useState(0);
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [notes, setNotes] = useState<NotificationItem[]>([]);
   const [error, setError] = useState("");
@@ -28,16 +66,24 @@ export default function OverviewPage() {
     api<{ user: SessionUser }>("/api/auth/me")
       .then(async (mePayload) => {
         if (!active) return;
-        const reporter = isReporter(mePayload.user.role);
-        const [ticketPayload, statsPayload, notePayload] = await Promise.all([
-          api<{ complaints: Ticket[]; total: number }>(`/api/complaints?pageSize=${reporter ? 100 : 8}`),
-          reporter ? Promise.resolve(null) : api<StatsPayload>("/api/stats"),
+        const user = mePayload.user;
+        const showStats = canAny(user, ["analytics:view", "analytics:view_hostel"]);
+        const opsScope = operationalScopeParam(user);
+        const ops = opsScope !== "mine";
+        const [minePayload, opsPayload, statsPayload, notePayload] = await Promise.all([
+          api<{ complaints: Ticket[]; total: number }>("/api/complaints?scope=mine&pageSize=8"),
+          ops
+            ? api<{ complaints: Ticket[]; total: number }>(`/api/complaints?scope=${opsScope}&pageSize=8`)
+            : Promise.resolve({ complaints: [] as Ticket[], total: 0 }),
+          showStats ? api<StatsPayload>("/api/stats") : Promise.resolve(null),
           api<{ notifications: NotificationItem[] }>("/api/notifications"),
         ]);
         if (!active) return;
-        setMe(mePayload.user);
-        setTickets(ticketPayload.complaints);
-        setTicketTotal(ticketPayload.total);
+        setMe(user);
+        setMineTickets(minePayload.complaints);
+        setMineTotal(minePayload.total);
+        setOpsTickets(ops ? opsPayload.complaints : minePayload.complaints);
+        setOpsTotal(ops ? opsPayload.total : minePayload.total);
         setStats(statsPayload);
         setNotes(notePayload.notifications.slice(0, 4));
         setError("");
@@ -54,15 +100,20 @@ export default function OverviewPage() {
   }, [retry]);
 
   const mine = useMemo(() => {
-    const open = tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status));
+    const source = stats ? [] : opsTickets;
+    const open = source.filter((item) => !["RESOLVED", "CLOSED", "REJECTED"].includes(item.status));
     return {
-      all: stats?.totals.all ?? ticketTotal,
+      all: stats?.totals.all ?? opsTotal,
       open: stats?.totals.open ?? open.length,
-      progress: stats?.byStatus.IN_PROGRESS ?? tickets.filter((item) => item.status === "IN_PROGRESS").length,
-      resolved: stats?.totals.resolved ?? tickets.filter((item) => ["RESOLVED", "CLOSED"].includes(item.status)).length,
-      overdue: stats?.totals.breached ?? 0,
+      progress: stats?.byStatus.IN_PROGRESS ?? source.filter((item) => item.status === "IN_PROGRESS").length,
+      resolved: stats?.totals.resolved ?? source.filter((item) => ["RESOLVED", "CLOSED"].includes(item.status)).length,
+      overdue: stats?.totals.breached ?? source.filter((item) => !["RESOLVED", "CLOSED", "REJECTED"].includes(item.status) && new Date(item.dueAt).getTime() < Date.now()).length,
+      assigned: opsTickets.filter((item) => me && item.assigneeId === me.id && !["RESOLVED", "CLOSED"].includes(item.status)).length,
+      mineOpen: mineTickets.filter((item) => !["RESOLVED", "CLOSED", "REJECTED"].includes(item.status)).length,
+      mineProgress: mineTickets.filter((item) => item.status === "IN_PROGRESS").length,
+      mineResolved: mineTickets.filter((item) => ["RESOLVED", "CLOSED"].includes(item.status)).length,
     };
-  }, [tickets, stats, ticketTotal]);
+  }, [opsTickets, opsTotal, stats, me, mineTickets]);
 
   if (loading) {
     return (
@@ -76,44 +127,47 @@ export default function OverviewPage() {
   if (error) return <ErrorState message={error} onRetry={() => { setError(""); setLoading(true); setRetry((value) => value + 1); }} />;
   if (!me) return null;
 
-  const reporter = isReporter(me.role);
+  const copy = dashboardCopy(me.role);
+  const attention = copy.stats === "own" ? mineTickets : opsTickets;
+  const attentionHref =
+    copy.stats === "own"
+      ? "/dashboard/complaints?scope=mine"
+      : `/dashboard/complaints?scope=${operationalScopeParam(me)}`;
+  const cards =
+    copy.stats === "own"
+      ? [
+          ["My complaints", mineTotal],
+          ["Open", mine.mineOpen],
+          ["In progress", mine.mineProgress],
+          ["Resolved", mine.mineResolved],
+        ]
+      : copy.stats === "work"
+        ? [
+            ["My complaints", mineTotal],
+            ["Assigned to me", mine.assigned],
+            ["In progress", mine.progress],
+            ["Overdue", mine.overdue],
+          ]
+        : [
+            ["My complaints", mineTotal],
+            ["Open in scope", mine.open],
+            ["In progress", mine.progress],
+            ["Overdue", mine.overdue],
+          ];
 
   return (
     <div>
       <PageHeader
         title={`${greeting()}, ${me.name.split(" ")[0]}`}
-        description={
-          reporter
-            ? "Track and manage your campus service requests."
-            : `Operations overview · ${ROLE_META[me.role].label}`
-        }
+        description={copy.description}
         actions={
-          reporter ? (
-            <Link href="/dashboard/complaints/new">
-              <Button>+ Report an issue</Button>
-            </Link>
-          ) : (
-            <Link href="/dashboard/operations">
-              <Button>Open operations</Button>
-            </Link>
-          )
+          <Link href={copy.primary.href}>
+            <Button>{copy.primary.label}</Button>
+          </Link>
         }
       />
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(reporter
-          ? [
-              ["My complaints", mine.all],
-              ["Open", mine.open],
-              ["In progress", mine.progress],
-              ["Resolved", mine.resolved],
-            ]
-          : [
-              ["Total complaints", mine.all],
-              ["Open", mine.open],
-              ["In progress", mine.progress],
-              ["Overdue", mine.overdue],
-            ]
-        ).map(([label, value]) => (
+        {cards.map(([label, value]) => (
           <Card key={label}>
             <p className="text-xs text-[var(--muted)]">{label}</p>
             <p className="mt-2 text-3xl font-semibold">{value}</p>
@@ -123,13 +177,13 @@ export default function OverviewPage() {
       <section className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
         <div>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold">Recent complaints</h2>
-            <Link href="/dashboard/complaints" className="text-sm text-[var(--accent)]">
+            <h2 className="text-base font-semibold">{copy.stats === "own" ? "My complaints" : "Needs attention"}</h2>
+            <Link href={attentionHref} className="text-sm text-[var(--accent)]">
               View all
             </Link>
           </div>
-          {tickets.length === 0 ? (
-            <EmptyState title="No complaints yet." description="Issues you report will appear here." />
+          {attention.length === 0 ? (
+            <EmptyState title="No complaints yet." description="Issues in your access scope will appear here." />
           ) : (
             <>
               <div className="hidden overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] md:block">
@@ -144,7 +198,7 @@ export default function OverviewPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tickets.slice(0, 8).map((ticket) => (
+                    {attention.slice(0, 8).map((ticket) => (
                       <tr key={ticket.id} className="border-t border-[var(--border)]">
                         <td className="px-4 py-3 font-mono text-xs">
                           <Link href={`/dashboard/complaints/${ticket.id}`} className="text-[var(--accent)]">
@@ -163,7 +217,7 @@ export default function OverviewPage() {
                 </table>
               </div>
               <div className="space-y-3 md:hidden">
-                {tickets.slice(0, 8).map((ticket) => (
+                {attention.slice(0, 8).map((ticket) => (
                   <Link key={ticket.id} href={`/dashboard/complaints/${ticket.id}`} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                     <p className="font-mono text-xs text-[var(--accent)]">{ticket.ticketNo}</p>
                     <p className="mt-1 font-medium">{ticket.title}</p>
@@ -171,7 +225,6 @@ export default function OverviewPage() {
                     <div className="mt-2 flex flex-wrap gap-2">
                       <StatusBadge status={ticket.status} />
                     </div>
-                    <p className="mt-2 text-xs text-[var(--muted)]">{remainingLabel(ticket.dueAt, ticket.status, ticket.resolvedAt)}</p>
                   </Link>
                 ))}
               </div>
@@ -196,18 +249,28 @@ export default function OverviewPage() {
           </Card>
           <Card>
             <h2 className="text-base font-semibold">Quick actions</h2>
+            <p className="mt-1 text-xs text-[var(--muted)]">{ROLE_META[me.role].blurb}</p>
             <div className="mt-3 flex flex-col gap-2">
-              {reporter ? (
+              {can(me, "complaint:create") ? (
                 <Link href="/dashboard/complaints/new" className="text-sm text-[var(--accent)]">
-                  Report a campus issue
+                  Raise a complaint
                 </Link>
               ) : null}
-              <Link href="/dashboard/map" className="text-sm text-[var(--accent)]">
-                Open campus map
-              </Link>
-              <Link href="/dashboard/complaints" className="text-sm text-[var(--accent)]">
-                Browse complaints
-              </Link>
+              {can(me, "complaint:view_own") ? (
+                <Link href="/dashboard/complaints?scope=mine" className="text-sm text-[var(--accent)]">
+                  Track my complaints
+                </Link>
+              ) : null}
+              {canAny(me, ["complaint:assign", "complaint:update_assigned"]) ? (
+                <Link href="/dashboard/operations" className="text-sm text-[var(--accent)]">
+                  Open assigned work
+                </Link>
+              ) : null}
+              {can(me, "user:manage") ? (
+                <Link href="/dashboard/users" className="text-sm text-[var(--accent)]">
+                  Manage users
+                </Link>
+              ) : null}
             </div>
           </Card>
         </div>

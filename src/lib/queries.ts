@@ -1,30 +1,7 @@
 import type { Prisma } from "@prisma/client";
-import type { SessionUser } from "./session";
-import { STAFF_QUEUE_STATUSES, isReporter, wardenLocationIds } from "./permissions";
+import { analyticsScope, complaintScope } from "./rbac";
 
-export function complaintScope(user: SessionUser, scope = "default"): Prisma.ComplaintWhereInput {
-  if (isReporter(user.role) || scope === "mine") return { reporterId: user.id };
-  if (scope === "assigned" || user.role === "STAFF") {
-    if (scope === "assigned") return { assigneeId: user.id };
-    return {
-      OR: [
-        { assigneeId: user.id },
-        { assigneeId: null, status: { in: [...STAFF_QUEUE_STATUSES] } },
-      ],
-    };
-  }
-  if (user.role === "WARDEN") {
-    return { locationId: { in: wardenLocationIds(user) } };
-  }
-  return {};
-}
-
-export function analyticsScope(user: SessionUser): Prisma.ComplaintWhereInput | null {
-  if (isReporter(user.role)) return null;
-  if (user.role === "STAFF") return { assigneeId: user.id };
-  if (user.role === "WARDEN") return { locationId: { in: wardenLocationIds(user) } };
-  return {};
-}
+export { analyticsScope, complaintScope };
 
 export const ticketListSelect = {
   id: true,
