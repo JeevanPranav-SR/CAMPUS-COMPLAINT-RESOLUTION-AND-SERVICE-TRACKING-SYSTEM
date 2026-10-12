@@ -9,8 +9,19 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { CAMPUS_LOCATIONS, nearestLocation, type CampusLocation } from "@/lib/campus";
 import { api } from "@/lib/client";
+import { CLASSIFY_EXAMPLES } from "@/lib/classify";
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
 import type { Ticket } from "@/lib/types";
+
+type AiSuggestion = {
+  category: string;
+  predicted_category: string;
+  unit: string;
+  priority: Priority;
+  confidence: number;
+  assigned_worker_name: string | null;
+  explanation: string;
+};
 
 export default function NewComplaintPage() {
   const toast = useToast();
@@ -24,6 +35,8 @@ export default function NewComplaintPage() {
   const [evidence, setEvidence] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
   const [created, setCreated] = useState<Ticket | null>(null);
 
   const hours = slaHours(category, priority);
@@ -47,6 +60,29 @@ export default function NewComplaintPage() {
     const reader = new FileReader();
     reader.onload = () => setEvidence(String(reader.result ?? ""));
     reader.readAsDataURL(file);
+  }
+
+  async function suggestFromText(text = description) {
+    if (text.trim().length < 5) {
+      setError("Write a short description first so AI can classify it.");
+      return;
+    }
+    setAiBusy(true);
+    setError("");
+    try {
+      const payload = await api<AiSuggestion>("/api/ai/classify", {
+        method: "POST",
+        body: JSON.stringify({ complaint_text: text, location: landmark || location.name }),
+      });
+      setSuggestion(payload);
+      setCategory(payload.category);
+      setPriority(payload.priority);
+      toast(`AI suggested ${payload.predicted_category}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to classify");
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -104,7 +140,7 @@ export default function NewComplaintPage() {
     <div>
       <PageHeader
         title="Report an issue"
-        description="Pin the location on the satellite map, then describe the problem. Estate will assign a worker."
+        description="Describe the problem in your own words. AI can suggest a category and the right campus unit. Then pin the place on the map."
       />
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-4">
@@ -123,8 +159,36 @@ export default function NewComplaintPage() {
               </Select>
             </Field>
             <Field label="Description" hint="What is broken, who is affected, and when it started.">
-              <Textarea required minLength={20} maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} />
+              <Textarea required minLength={20} maxLength={2000} rows={5} value={description} onChange={(event) => { setDescription(event.target.value); setSuggestion(null); }} />
             </Field>
+            <div className="flex flex-wrap gap-2">
+              {CLASSIFY_EXAMPLES.map((example) => (
+                <button
+                  key={example.label}
+                  type="button"
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)] hover:bg-slate-50"
+                  onClick={() => {
+                    setDescription(example.text);
+                    setSuggestion(null);
+                    void suggestFromText(example.text);
+                  }}
+                >
+                  {example.label}
+                </button>
+              ))}
+            </div>
+            <Button type="button" variant="secondary" disabled={aiBusy} onClick={() => suggestFromText()}>
+              {aiBusy ? "Classifying…" : "Suggest category"}
+            </Button>
+            {suggestion ? (
+              <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+                <p className="font-medium">AI suggested {suggestion.predicted_category}</p>
+                <p className="mt-1 text-[var(--muted)]">{suggestion.explanation}</p>
+                {suggestion.assigned_worker_name ? (
+                  <p className="mt-1 text-xs">Suggested staff: {suggestion.assigned_worker_name}</p>
+                ) : null}
+              </div>
+            ) : null}
             <Field label="Priority">
               <Select value={priority} onChange={(event) => setPriority(event.target.value as Priority)}>
                 {PRIORITIES.map((item) => (

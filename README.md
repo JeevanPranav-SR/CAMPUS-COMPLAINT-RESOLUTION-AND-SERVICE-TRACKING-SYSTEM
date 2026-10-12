@@ -34,7 +34,7 @@ This project replaces that ad-hoc process with a single tracked workflow.
 ## Key Features
 
 - Role-based dashboards for student, faculty, staff, warden, and estate admin
-- Multi-section complaint intake with campus map pin and optional photo
+- Multi-section complaint intake with campus map pin, optional photo, and AI category suggestion
 - Ticket detail with SLA, assignment, comments, evidence, and timeline
 - Operations board with acknowledge / assign / start / resolve actions
 - Campus GIS with live complaint pins and operational filters
@@ -125,7 +125,7 @@ Principal routes:
 - `GET/POST /api/complaints` · `GET/PATCH /api/complaints/[id]` · `POST /api/complaints/[id]/comments`
 - `GET/PATCH /api/notifications`
 - `GET/PATCH /api/account`
-- `GET /api/staff` · `GET /api/stats`
+- `GET /api/staff` · `GET /api/stats` · `POST /api/ai/classify`
 
 ## Security
 
