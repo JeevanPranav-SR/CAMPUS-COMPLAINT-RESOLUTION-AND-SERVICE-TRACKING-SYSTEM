@@ -44,6 +44,8 @@ This project replaces that ad-hoc process with a single tracked workflow.
 - Reporter verification: close with rating, or reopen with a reason
 - Settings for profile, password, notification preference, and appearance
 
+The original Streamlit prototype UI is kept at `prototypes/streamlit_app.py`. The live site uses the same classify-and-assign flow inside Next.js (`POST /api/ai/classify`).
+
 ## User Roles
 
 | Role | Access |
