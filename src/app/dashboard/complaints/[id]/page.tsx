@@ -9,7 +9,8 @@ import { Select, Textarea } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/client";
-import { CATEGORIES, LIFECYCLE, type Status } from "@/lib/constants";
+import { CATEGORIES, LIFECYCLE, normalizeRole, ROLE_META, type Status } from "@/lib/constants";
+import { departmentName, routeComplaint } from "@/lib/routing";
 import { getLocation } from "@/lib/campus";
 import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rbac";
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
@@ -168,6 +169,10 @@ export default function TicketDetailPage() {
               <dd>{unit}</dd>
             </div>
             <div>
+              <dt className="text-[var(--muted)]">Routed to</dt>
+              <dd>{departmentName(routeComplaint(ticket.category, ticket.locationId))}</dd>
+            </div>
+            <div>
               <dt className="text-[var(--muted)]">Reporter</dt>
               <dd>{ticket.reporter?.name}</dd>
             </div>
@@ -194,7 +199,7 @@ export default function TicketDetailPage() {
                   <p className="text-sm">
                     <span className="font-medium">{event.status.replace(/_/g, " ")}</span>
                     {event.actor?.name ? ` · ${event.actor.name}` : ""}
-                    {event.actor?.role ? ` (${event.actor.role})` : ""}
+                    {event.actor?.role ? ` (${ROLE_META[normalizeRole(event.actor.role)].label})` : ""}
                   </p>
                   <p className="text-sm text-slate-600">{event.note}</p>
                   <p className="text-xs text-[var(--muted)]">{formatDateTime(event.createdAt)}</p>
@@ -243,7 +248,7 @@ export default function TicketDetailPage() {
             <h2 className="text-sm font-semibold">Operations</h2>
             {canAssign(me) ? (
               <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
-                <option value="">Select staff</option>
+                <option value="">Select technician</option>
                 {staff.map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.name} · {person.department}
@@ -252,7 +257,7 @@ export default function TicketDetailPage() {
               </Select>
             ) : null}
             <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Progress or resolution note" />
-            {me.role === "STAFF" && !ticket.assigneeId ? (
+            {me.role === "TECHNICIAN" && !ticket.assigneeId ? (
               <Button size="sm" disabled={busy} onClick={takeTicket}>
                 Take ticket
               </Button>
@@ -260,7 +265,7 @@ export default function TicketDetailPage() {
             <div className="flex flex-wrap gap-2">
               {canAssign(me) ? (
                 <Button size="sm" disabled={busy || !assigneeId} onClick={() => update("ASSIGNED")}>
-                  Assign staff
+                  Assign technician
                 </Button>
               ) : null}
               {allowed.filter((status) => status !== "ASSIGNED").map((status) => (

@@ -3,6 +3,7 @@ import { hashPassword, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createSession, getSession } from "@/lib/session";
 import { normalizeRole } from "@/lib/constants";
+import { emailConfigured, smsConfigured } from "@/lib/channels";
 
 export async function GET() {
   const session = await getSession();
@@ -19,10 +20,15 @@ export async function GET() {
       registerNo: true,
       phone: true,
       notifyInApp: true,
+      notifyEmail: true,
+      notifySms: true,
     },
   });
   if (!user) return fail("NOT_FOUND", "Account not found.", 404);
-  return ok({ user: { ...user, role: normalizeRole(user.role) } });
+  return ok({
+    user: { ...user, role: normalizeRole(user.role) },
+    channels: { email: emailConfigured(), sms: smsConfigured() },
+  });
 }
 
 export async function PATCH(request: Request) {
@@ -36,6 +42,8 @@ export async function PATCH(request: Request) {
     role?: string;
     department?: string;
     notifyInApp?: boolean;
+    notifyEmail?: boolean;
+    notifySms?: boolean;
     currentPassword?: string;
     newPassword?: string;
   }>(request);
@@ -60,6 +68,8 @@ export async function PATCH(request: Request) {
       name: body.name?.trim() || undefined,
       phone: body.phone?.trim() || undefined,
       notifyInApp: typeof body.notifyInApp === "boolean" ? body.notifyInApp : undefined,
+      notifyEmail: typeof body.notifyEmail === "boolean" ? body.notifyEmail : undefined,
+      notifySms: typeof body.notifySms === "boolean" ? body.notifySms : undefined,
     },
   });
 
@@ -85,6 +95,8 @@ export async function PATCH(request: Request) {
       registerNo: updated.registerNo,
       phone: updated.phone,
       notifyInApp: updated.notifyInApp,
+      notifyEmail: updated.notifyEmail,
+      notifySms: updated.notifySms,
     },
   });
 }

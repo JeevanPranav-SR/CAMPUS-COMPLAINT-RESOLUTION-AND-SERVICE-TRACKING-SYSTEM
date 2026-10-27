@@ -1,21 +1,49 @@
+import { sendEmail, sendSms } from "./channels";
 import { prisma } from "./prisma";
 
+function ticketLink(complaintId?: string) {
+  const base = process.env.APP_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
+  return base && complaintId ? `${base}/dashboard/complaints/${complaintId}` : undefined;
+}
+
+/**
+ * In-app notification, plus email/SMS when `external` is set (status changes,
+ * technician assignment, resolution). External channels are optional and
+ * silently skipped when their provider keys are not configured.
+ */
 export async function notify(input: {
   userId: string;
   complaintId?: string;
   title: string;
   body: string;
   actorId?: string;
+  external?: boolean;
 }) {
   if (input.actorId && input.actorId === input.userId) return;
-  const user = await prisma.user.findUnique({ where: { id: input.userId }, select: { notifyInApp: true } });
-  if (!user?.notifyInApp) return;
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { email: true, phone: true, notifyInApp: true, notifyEmail: true, notifySms: true, active: true },
+  });
+  if (!user?.active) return;
+
+  const delivered: string[] = [];
+  if (input.external) {
+    const [email, sms] = await Promise.all([
+      user.notifyEmail ? sendEmail(user.email, input.title, input.body, ticketLink(input.complaintId)) : "skipped",
+      user.notifySms && user.phone ? sendSms(user.phone, `BIT NEXUS: ${input.body}`) : "skipped",
+    ]);
+    if (email === "sent") delivered.push("email");
+    if (sms === "sent") delivered.push("sms");
+  }
+
+  if (!user.notifyInApp && delivered.length === 0) return;
   await prisma.notification.create({
     data: {
       userId: input.userId,
       complaintId: input.complaintId,
       title: input.title,
       body: input.body,
+      channels: ["in-app", ...delivered].join(","),
     },
   });
 }
@@ -23,26 +51,21 @@ export async function notify(input: {
 export async function syncOverdueSlaNotifications() {
   const overdue = await prisma.complaint.findMany({
     where: {
-      status: { notIn: ["RESOLVED", "CLOSED"] },
+      status: { notIn: ["RESOLVED", "CLOSED", "REJECTED"] },
       dueAt: { lt: new Date() },
+      notifications: { none: { title: "SLA exceeded" } },
     },
     select: { id: true, ticketNo: true, reporterId: true, assigneeId: true },
   });
+  if (overdue.length === 0) return;
 
-  for (const item of overdue) {
-    const existing = await prisma.notification.findFirst({
-      where: { complaintId: item.id, title: "SLA exceeded" },
-      select: { id: true },
-    });
-    if (existing) continue;
-    const userId = item.assigneeId ?? item.reporterId;
-    await prisma.notification.create({
-      data: {
-        userId,
-        complaintId: item.id,
-        title: "SLA exceeded",
-        body: `${item.ticketNo} has exceeded its SLA.`,
-      },
-    });
-  }
+  await prisma.notification.createMany({
+    data: overdue.map((item) => ({
+      userId: item.assigneeId ?? item.reporterId,
+      complaintId: item.id,
+      title: "SLA exceeded",
+      body: `${item.ticketNo} has exceeded its SLA.`,
+      channels: "in-app",
+    })),
+  });
 }

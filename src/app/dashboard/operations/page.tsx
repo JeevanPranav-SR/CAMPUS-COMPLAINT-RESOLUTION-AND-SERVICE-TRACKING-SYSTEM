@@ -153,7 +153,7 @@ export default function OperationsPage() {
                             onChange={(event) => setAssignTo((current) => ({ ...current, [ticket.id]: event.target.value }))}
                             aria-label={`Assign ${ticket.ticketNo}`}
                           >
-                            <option value="">Select staff</option>
+                            <option value="">Select technician</option>
                             {staff.map((person) => (
                               <option key={person.id} value={person.id}>
                                 {person.name}
@@ -170,7 +170,7 @@ export default function OperationsPage() {
                           </Button>
                         </div>
                       ) : null}
-                      {me?.role === "STAFF" && !ticket.assigneeId ? (
+                      {me?.role === "TECHNICIAN" && !ticket.assigneeId ? (
                         <Button size="sm" className="mt-2 w-full" onClick={() => act(ticket.id, undefined, me.id)}>
                           Take ticket
                         </Button>

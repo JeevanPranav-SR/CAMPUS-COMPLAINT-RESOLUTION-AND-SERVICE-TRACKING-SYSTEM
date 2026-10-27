@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import CampusMap from "@/components/map/CampusMap";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { CAMPUS_LOCATIONS, nearestLocation, type CampusLocation } from "@/lib/ca
 import { api } from "@/lib/client";
 import { CLASSIFY_EXAMPLES } from "@/lib/classify";
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
+import { departmentName, routeComplaint } from "@/lib/routing";
 import type { Ticket } from "@/lib/types";
 
 type AiSuggestion = {
@@ -21,7 +22,36 @@ type AiSuggestion = {
   confidence: number;
   assigned_worker_name: string | null;
   explanation: string;
+  department_name: string;
 };
+
+type SimilarMatch = {
+  id: string | null;
+  ticketNo: string | null;
+  title: string | null;
+  mine: boolean;
+  status: string;
+  place: string;
+  department: string;
+  distanceMeters: number;
+  ageHours: number;
+};
+
+type SimilarPayload = {
+  category: string;
+  radiusMeters: number;
+  windowDays: number;
+  openCount: number;
+  recentlyFixed: number;
+  recurring: boolean;
+  matches: SimilarMatch[];
+};
+
+function ageLabel(hours: number) {
+  if (hours < 1) return "just now";
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
 
 export default function NewComplaintPage() {
   const toast = useToast();
@@ -37,10 +67,30 @@ export default function NewComplaintPage() {
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
-  const [created, setCreated] = useState<Ticket | null>(null);
+  const [created, setCreated] = useState<(Ticket & { departmentName?: string }) | null>(null);
+  const [similar, setSimilar] = useState<SimilarPayload | null>(null);
 
   const hours = slaHours(category, priority);
   const unit = useMemo(() => CATEGORIES.find((item) => item.id === category)?.unit, [category]);
+  const routedTo = departmentName(routeComplaint(category, location.id));
+
+  useEffect(() => {
+    if (!pick) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      api<SimilarPayload>(`/api/complaints/similar?category=${category}&lat=${pick.lat}&lng=${pick.lng}`)
+        .then((payload) => {
+          if (active) setSimilar(payload);
+        })
+        .catch(() => {
+          if (active) setSimilar(null);
+        });
+    }, 300);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [category, pick]);
 
   function handlePick(lat: number, lng: number) {
     setPick({ lat, lng });
@@ -72,7 +122,7 @@ export default function NewComplaintPage() {
     try {
       const payload = await api<AiSuggestion>("/api/ai/classify", {
         method: "POST",
-        body: JSON.stringify({ complaint_text: text, location: landmark || location.name }),
+        body: JSON.stringify({ complaint_text: text, location: landmark || location.name, location_id: location.id }),
       });
       setSuggestion(payload);
       setCategory(payload.category);
@@ -94,7 +144,7 @@ export default function NewComplaintPage() {
     setBusy(true);
     setError("");
     try {
-      const payload = await api<{ complaint: Ticket }>("/api/complaints", {
+      const payload = await api<{ complaint: Ticket & { departmentName?: string } }>("/api/complaints", {
         method: "POST",
         body: JSON.stringify({
           title,
@@ -123,7 +173,10 @@ export default function NewComplaintPage() {
         <p className="text-sm font-medium text-emerald-700">Complaint submitted successfully.</p>
         <h1 className="mt-2 text-2xl font-semibold">{created.ticketNo}</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">{created.title}</p>
-        <p className="mt-4 text-sm">SLA window: {created.slaHours} hours from submission.</p>
+        <p className="mt-4 text-sm">
+          Automatically routed to <span className="font-medium">{created.departmentName ?? routedTo}</span>. SLA window: {created.slaHours} hours.
+        </p>
+        <p className="mt-1 text-xs text-[var(--muted)]">Keep this reference ID. You will be notified on every status change.</p>
         <div className="mt-6 flex justify-center gap-3">
           <Link href={`/dashboard/complaints/${created.id}`}>
             <Button>Track complaint</Button>
@@ -140,7 +193,7 @@ export default function NewComplaintPage() {
     <div>
       <PageHeader
         title="Report an issue"
-        description="Describe the problem in your own words. AI can suggest a category and the right campus unit. Then pin the place on the map."
+        description="Describe the problem in your own words. AI suggests the category, the complaint is routed to the right department automatically, and you are warned if it was already reported nearby."
       />
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-4">
@@ -185,7 +238,7 @@ export default function NewComplaintPage() {
                 <p className="font-medium">AI suggested {suggestion.predicted_category}</p>
                 <p className="mt-1 text-[var(--muted)]">{suggestion.explanation}</p>
                 {suggestion.assigned_worker_name ? (
-                  <p className="mt-1 text-xs">Suggested staff: {suggestion.assigned_worker_name}</p>
+                  <p className="mt-1 text-xs">Suggested technician: {suggestion.assigned_worker_name}</p>
                 ) : null}
               </div>
             ) : null}
@@ -223,9 +276,44 @@ export default function NewComplaintPage() {
               <Input value={landmark} onChange={(event) => setLandmark(event.target.value)} placeholder="Floor, room, wing" />
             </Field>
             <p className="text-sm text-[var(--muted)]">
-              {pick ? `Pinned near ${location.name} · routed to ${unit} · SLA ${hours}h` : "Tap the map to drop a pin."}
+              {pick ? `Pinned near ${location.name} · ${unit} · SLA ${hours}h` : "Tap the map to drop a pin."}
             </p>
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm">
+              <span className="text-[var(--muted)]">Auto-routing: </span>
+              <span className="font-medium">{routedTo} department</span>
+            </div>
           </Card>
+          {similar && (similar.openCount > 0 || similar.recurring) ? (
+            <Card className="space-y-2 border-amber-300 bg-amber-50/60">
+              <h2 className="text-sm font-semibold text-amber-900">
+                {similar.openCount > 0
+                  ? `${similar.openCount} open ${similar.category.toLowerCase()} complaint${similar.openCount > 1 ? "s" : ""} within ${similar.radiusMeters} m`
+                  : `Repeat problem: ${similar.recentlyFixed} ${similar.category.toLowerCase()} fix${similar.recentlyFixed > 1 ? "es" : ""} here in the last ${similar.windowDays} days`}
+              </h2>
+              <p className="text-xs text-amber-900/80">
+                {similar.openCount > 0
+                  ? "This may already be reported. You can still file it, since more reports raise its visibility to the department."
+                  : "File it anyway. Repeat failures are flagged to the department for a root-cause repair."}
+              </p>
+              <ul className="space-y-1.5">
+                {similar.matches.map((match, index) => (
+                  <li key={match.id ?? index} className="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs">
+                    {match.id ? (
+                      <Link href={`/dashboard/complaints/${match.id}`} className="font-medium text-[var(--primary)] hover:underline">
+                        {match.ticketNo} · {match.title}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">Reported by another user</span>
+                    )}
+                    <p className="text-[var(--muted)]">
+                      {match.status} · {match.department} · {match.place} · {match.distanceMeters} m away · {ageLabel(match.ageHours)}
+                      {match.mine ? " · your complaint" : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
           <Card>
             <Field label="Photo (optional)" hint="JPEG, PNG or WebP, max 1.2 MB">
               <Input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onFile(event.target.files?.[0])} />

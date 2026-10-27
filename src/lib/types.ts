@@ -56,6 +56,36 @@ export type StatsPayload = {
     avgResolution: number;
     slaCompliance: number;
   };
+  speed: {
+    avgResolutionHours: number;
+    medianResolutionHours: number;
+    avgFirstResponseHours: number;
+    buckets: { label: string; count: number }[];
+  };
+  departments: {
+    id: string;
+    name: string;
+    total: number;
+    open: number;
+    resolved: number;
+    resolutionRate: number;
+    responseRate: number;
+    respondedWithin24h: number;
+    avgResponseHours: number;
+    avgResolutionHours: number;
+    slaCompliance: number;
+    avgRating: number;
+    ratings: number;
+  }[];
+  recurring: { location: string; category: string; count: number; open: number; reopened: number; lastAt: string }[];
+  trend: { categories: string[]; weeks: Record<string, string | number>[] };
+  feedback: {
+    average: number;
+    count: number;
+    responseRate: number;
+    distribution: { stars: number; count: number }[];
+    recent: { ticketNo: string; rating: number; comment: string; category: string }[];
+  };
   byCategory: Record<string, number>;
   byStatus: Record<string, number>;
   byPriority: Record<string, number>;

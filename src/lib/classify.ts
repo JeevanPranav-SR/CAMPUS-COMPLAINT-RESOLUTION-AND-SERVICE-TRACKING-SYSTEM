@@ -1,5 +1,5 @@
 import { CATEGORIES, type Priority } from "./constants";
-import { categoryIdsForDepartment } from "./rbac";
+import { opsDepartmentOf, type OpsDepartmentId } from "./routing";
 
 type KeywordRule = {
   category: (typeof CATEGORIES)[number]["id"];
@@ -50,7 +50,7 @@ export function classifyComplaint(text: string) {
   return {
     category: best.category,
     label: meta?.label ?? best.category,
-    unit: meta?.unit ?? "Estate Office",
+    unit: meta?.unit ?? "Facilities Helpdesk",
     confidence,
     matched: best.hits,
   };
@@ -63,19 +63,19 @@ export function suggestPriority(text: string): Priority {
   return "MEDIUM";
 }
 
-export function staffMatchesCategory(department: string | null, category: string) {
-  const categories = categoryIdsForDepartment(department);
-  return categories.includes(category);
+export function staffMatchesDepartment(staffDepartment: string | null, routed: OpsDepartmentId) {
+  return opsDepartmentOf(staffDepartment) === routed;
 }
 
 export function allocationExplanation(input: {
   categoryLabel: string;
   unit: string;
+  departmentName: string;
   workerName?: string | null;
   pending?: number;
 }) {
   if (!input.workerName) {
-    return `No available ${input.unit} staff was found for ${input.categoryLabel}. An administrator can assign this ticket manually.`;
+    return `${input.categoryLabel} work is routed automatically to the ${input.departmentName} department (${input.unit}). Its department head will assign a technician.`;
   }
-  return `${input.categoryLabel} work is routed to ${input.unit}. ${input.workerName} is suggested because they have the matching skill and the fewest open tasks (${input.pending ?? 0}).`;
+  return `${input.categoryLabel} work is routed to the ${input.departmentName} department. ${input.workerName} is suggested because they are in that team and have the fewest open tasks (${input.pending ?? 0}).`;
 }

@@ -1,6 +1,6 @@
 import { fail, ok, readJson } from "@/lib/http";
 import { createSession, hashPassword } from "@/lib/auth";
-import { COLLEGE_EMAIL_DOMAIN, isCollegeEmail, isDepartment } from "@/lib/constants";
+import { COLLEGE_EMAIL_DOMAIN, isCollegeEmail, isDepartment, SELF_REGISTER_ROLES } from "@/lib/constants";
 import { permissionsFor } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
@@ -12,9 +12,12 @@ export async function POST(request: Request) {
     registerNo?: string;
     department?: string;
     hostel?: string;
+    role?: string;
   }>(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.value;
+  const role = SELF_REGISTER_ROLES.find((item) => item === (body.role ?? "STUDENT"));
+  if (!role) return fail("FORBIDDEN", "Only student and faculty accounts can self-register.", 403);
 
   if (!body.name?.trim() || !body.email || !body.password) {
     return fail("VALIDATION", "Name, email and password are required.", 400);
@@ -22,7 +25,7 @@ export async function POST(request: Request) {
   if (body.password.length < 8) return fail("VALIDATION", "Password must be at least 8 characters.", 400);
   const email = body.email.toLowerCase().trim();
   if (!isCollegeEmail(email)) {
-    return fail("VALIDATION", `Student accounts must use your college mail ID (@${COLLEGE_EMAIL_DOMAIN}).`, 400);
+    return fail("VALIDATION", `Accounts must use your college mail ID (@${COLLEGE_EMAIL_DOMAIN}).`, 400);
   }
   if (body.name.trim().length < 3 || body.name.trim().length > 80) {
     return fail("VALIDATION", "Name must be between 3 and 80 characters.", 400);
@@ -39,10 +42,10 @@ export async function POST(request: Request) {
       name: body.name.trim(),
       email,
       passwordHash: await hashPassword(body.password),
-      role: "STUDENT",
+      role,
       registerNo: body.registerNo?.trim() || null,
       department: body.department,
-      hostel: body.hostel?.trim() || null,
+      hostel: role === "STUDENT" ? body.hostel?.trim() || null : null,
     },
   });
 
@@ -50,11 +53,11 @@ export async function POST(request: Request) {
     id: user.id,
     name: user.name,
     email: user.email,
-    role: "STUDENT" as const,
+    role,
     department: user.department,
     hostel: user.hostel,
     registerNo: user.registerNo,
-    permissions: permissionsFor("STUDENT"),
+    permissions: permissionsFor(role),
   };
   await createSession(session);
   return ok({ user: session }, 201);

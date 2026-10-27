@@ -8,7 +8,7 @@ It is intended as a **campus service operations platform**, not a simple complai
 
 ## Overview
 
-Students and faculty file geo-tagged service tickets. Wardens and estate administrators assign work. Field staff update progress. Reporters verify that the issue is actually fixed. The system records a timeline, enforces permissions in the API, and surfaces overdue work on the map and analytics views.
+Students and faculty file geo-tagged service tickets. Each ticket is routed automatically to one of four operational departments: IT Infrastructure, Electrical, Facilities / Civil, or Hostel Maintenance. That department's head assigns a maintenance technician, the technician updates progress, and the reporter verifies that the issue is actually fixed. A Super Admin oversees every department. The system records a timeline, enforces permissions in the API, and surfaces overdue work on the map and analytics views.
 
 ## Problem Statement
 
@@ -33,14 +33,18 @@ This project replaces that ad-hoc process with a single tracked workflow.
 
 ## Key Features
 
-- Role-based dashboards for student, faculty, staff, warden, and estate admin
+- Role-based dashboards for Student, Faculty, Maintenance Technician, Department Head, and Super Admin
+- Self-registration for students and faculty with a college mail ID; operational accounts are issued by the Super Admin
 - Multi-section complaint intake with campus map pin, optional photo, and AI category suggestion
+- Automated routing to IT Infrastructure, Electrical, Facilities / Civil, or Hostel Maintenance (`src/lib/routing.ts`), shown on intake and on every ticket
+- Duplicate-aware intake: warns when the same issue is already open within 150 m, without revealing other reporters
+- Unique reference ID per ticket (`CMP-YYYY-NNNNN`) with a confirmation notification
 - Ticket detail with SLA, assignment, comments, evidence, and timeline
 - Operations board with acknowledge / assign / start / resolve actions
 - Campus GIS with live complaint pins and operational filters
-- Analytics from database records (not placeholder charts)
-- Staff workload view
-- In-app notifications tied to real ticket events
+- Analytics from database records: resolution speed (average, median, first response), department response rates, recurring-issue trends and repeat failures, and user feedback ratings
+- Technician workload view
+- Notifications on status changes, technician assignments and resolutions, delivered in-app (live polling) and optionally by email (Resend) and SMS (Twilio)
 - Reporter verification: close with rating, or reopen with a reason
 - Settings for profile, password, notification preference, and appearance
 
@@ -52,9 +56,30 @@ The original Streamlit prototype UI is kept at `prototypes/streamlit_app.py`. Th
 | --- | --- |
 | **Student** | File tickets, track own complaints, comment, verify or reopen resolution |
 | **Faculty** | Same reporter workflow for academic-block and campus issues |
-| **Staff** | Work assigned tickets, take unassigned queue items, update progress, mark resolved |
-| **Warden** | Hostel / residential facilities, assign staff, monitor SLA |
-| **Estate admin** | Campus-wide complaints, assignment, analytics, map, workload |
+| **Maintenance Technician** | Work assigned tickets, take unassigned tickets routed to their department, update progress, mark resolved |
+| **Department Head** | All complaints routed to their department; assign technicians from that department; escalate; department analytics |
+| **Super Admin** | Campus-wide complaints, every department, users and roles, audit logs, campus analytics |
+
+Every role can also raise and track their own complaints. Older stored role codes (`STAFF`, `WARDEN`, `ADMIN`) are still recognised and are migrated by `npm run db:upgrade`.
+
+## Department Routing
+
+| Department | Categories |
+| --- | --- |
+| IT Infrastructure | Internet / Wi-Fi |
+| Electrical | Electrical (campus-wide, including hostels) |
+| Facilities / Civil | Plumbing, water, civil, furniture, cleaning, classroom/lab, transport, security, medical, sports, other |
+| Hostel Maintenance | Hostel and mess, plus any non-specialist issue raised inside a hostel |
+
+## What Makes It Different
+
+Most campus helpdesks (generic ticketing tools, ERP grievance modules, Google Forms or WhatsApp groups) stop at "log a complaint and change its status". BIT NEXUS adds:
+
+- **Geo-tagged tickets on the real campus map**, so hotspots are visible spatially
+- **Duplicate-aware reporting**, which shows open reports of the same issue nearby before you submit
+- **Reporter-verified closure**: a ticket closes only when the reporter confirms and rates it, otherwise it reopens with a fresh SLA
+- **Repeat-failure detection**, which flags the same fault at the same place for root-cause repair
+- **Per-category × priority SLA clocks**, with department response-rate analytics
 
 Permissions are enforced in API routes, not only by hiding buttons.
 
@@ -101,11 +126,11 @@ High-level flow:
 
 Core models:
 
-- **User** — identity, role, department/hostel, notification preference
+- **User** — identity, role, department/hostel, notification preferences (in-app, email, SMS)
 - **Complaint** — ticket number, category, priority, status, geo coordinates, SLA timestamps, rating
 - **TimelineEvent** — status/action history
 - **Comment** — discussion on a ticket
-- **Notification** — in-app events for reporters and staff
+- **Notification** — in-app events for reporters and technicians, with the channels delivered (in-app, email, SMS)
 
 Indexes exist on status, priority, category, reporter, assignee, createdAt, and dueAt.
 
@@ -125,6 +150,7 @@ Principal routes:
 
 - `POST /api/auth/login` · `POST /api/auth/logout` · `GET /api/auth/me` · `POST /api/auth/register`
 - `GET/POST /api/complaints` · `GET/PATCH /api/complaints/[id]` · `POST /api/complaints/[id]/comments`
+- `GET /api/complaints/similar?category=&lat=&lng=` (duplicate-aware intake)
 - `GET/PATCH /api/notifications`
 - `GET/PATCH /api/account`
 - `GET /api/staff` · `GET /api/stats` · `POST /api/ai/classify`
@@ -164,6 +190,11 @@ cp .env.example .env
 | `DATABASE_URL` | Pooled Postgres connection (Neon) |
 | `DATABASE_URL_UNPOOLED` | Direct Postgres connection for Prisma migrations |
 | `AUTH_SECRET` | JWT signing secret |
+| `RESEND_API_KEY`, `NOTIFY_FROM_EMAIL` | Optional. Enables email notifications |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` | Optional. Enables SMS notifications |
+| `APP_URL` | Optional. Base URL used for ticket links in emails |
+
+Email and SMS are skipped automatically when their variables are not set; in-app notifications always work.
 
 On Vercel these are provisioned by the Neon integration. Locally run `npx vercel env pull .env.local`.
 
@@ -175,6 +206,12 @@ Do not commit `.env` or `.env.local`.
 npx prisma generate
 npx prisma db push
 npm run db:seed
+```
+
+Upgrade an existing database without wiping it (renames legacy roles, adds department-head accounts):
+
+```bash
+npm run db:upgrade
 ```
 
 Reset demo data:
@@ -210,22 +247,25 @@ Seeded for local / viva demonstration only. All campus accounts use `@bitsathy.a
 | Student (Sapphire) | `karthik.r@bitsathy.ac.in` | `student123` |
 | Student (Cauvery) | `divya.m@bitsathy.ac.in` | `student123` |
 | Faculty (ECE) | `meena.k@bitsathy.ac.in` | `faculty123` |
-| Electrical staff | `ramesh.m@bitsathy.ac.in` | `staff123` |
-| Civil/plumbing staff | `arun.p@bitsathy.ac.in` | `staff123` |
-| Data Centre staff | `nisha.v@bitsathy.ac.in` | `staff123` |
-| Warden | `lakshmi.w@bitsathy.ac.in` | `warden123` |
-| Estate admin | `admin@bitsathy.ac.in` | `admin123` |
+| Technician · Electrical | `ramesh.m@bitsathy.ac.in` | `staff123` |
+| Technician · Facilities / Civil | `arun.p@bitsathy.ac.in` | `staff123` |
+| Technician · IT Infrastructure | `nisha.v@bitsathy.ac.in` | `staff123` |
+| Technician · Hostel Maintenance | `murugan.s@bitsathy.ac.in` | `staff123` |
+| Department Head · Hostel Maintenance | `lakshmi.w@bitsathy.ac.in` | `warden123` |
+| Department Head · IT Infrastructure | `head.it@bitsathy.ac.in` | `head1234` |
+| Department Head · Electrical | `head.electrical@bitsathy.ac.in` | `head1234` |
+| Department Head · Facilities / Civil | `head.facilities@bitsathy.ac.in` | `head1234` |
+| Super Admin | `admin@bitsathy.ac.in` | `admin123` |
 
 Demo credentials appear on the login page only in development mode.
 
 ## Future Enhancements
 
-- Email / SMS notifications
+- WhatsApp notifications
 - File storage outside the database (object storage)
 - Marker clustering and heatmap at larger ticket volumes
 - Native mobile clients
 - Scheduled SLA breach jobs (currently SLA is calculated from timestamps on read)
-- PostgreSQL for multi-user production deployment
 
 ## Campus data
 

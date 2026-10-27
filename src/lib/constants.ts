@@ -1,12 +1,27 @@
-export const ROLES = ["STUDENT", "FACULTY", "STAFF", "WARDEN", "ADMIN"] as const;
+export const ROLES = ["STUDENT", "FACULTY", "TECHNICIAN", "DEPARTMENT_HEAD", "SUPER_ADMIN"] as const;
 export type Role = (typeof ROLES)[number];
 
+/** Role codes stored by earlier versions of the app. */
+const LEGACY_ROLES: Record<Role, string[]> = {
+  STUDENT: [],
+  FACULTY: [],
+  TECHNICIAN: ["STAFF"],
+  DEPARTMENT_HEAD: ["WARDEN", "DEPARTMENT_ADMIN"],
+  SUPER_ADMIN: ["ADMIN"],
+};
+
 export function normalizeRole(role: string): Role {
-  if (role === "DEPARTMENT_ADMIN") return "WARDEN";
-  if (role === "SUPER_ADMIN") return "ADMIN";
   if ((ROLES as readonly string[]).includes(role)) return role as Role;
-  return "STUDENT";
+  const match = ROLES.find((item) => LEGACY_ROLES[item].includes(role));
+  return match ?? "STUDENT";
 }
+
+/** Every stored value that means this role, for database filters. */
+export function roleValues(role: Role) {
+  return [role, ...LEGACY_ROLES[role]];
+}
+
+export const SELF_REGISTER_ROLES = ["STUDENT", "FACULTY"] as const satisfies readonly Role[];
 
 /** UG / MBA branches offered at Bannari Amman Institute of Technology, Sathyamangalam. */
 export const DEPARTMENTS = [
@@ -52,9 +67,10 @@ export const DEMO_ACCOUNTS = [
   { label: "Student (AIDS)", email: `sneha.p@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
   { label: "Student (IT)", email: `karthik.r@${COLLEGE_EMAIL_DOMAIN}`, password: "student123" },
   { label: "Faculty", email: `meena.k@${COLLEGE_EMAIL_DOMAIN}`, password: "faculty123" },
-  { label: "Staff", email: `ramesh.m@${COLLEGE_EMAIL_DOMAIN}`, password: "staff123" },
-  { label: "Warden", email: `lakshmi.w@${COLLEGE_EMAIL_DOMAIN}`, password: "warden123" },
-  { label: "Estate admin", email: `admin@${COLLEGE_EMAIL_DOMAIN}`, password: "admin123" },
+  { label: "Technician (Electrical)", email: `ramesh.m@${COLLEGE_EMAIL_DOMAIN}`, password: "staff123" },
+  { label: "Dept head (Hostel)", email: `lakshmi.w@${COLLEGE_EMAIL_DOMAIN}`, password: "warden123" },
+  { label: "Dept head (IT)", email: `head.it@${COLLEGE_EMAIL_DOMAIN}`, password: "head1234" },
+  { label: "Super Admin", email: `admin@${COLLEGE_EMAIL_DOMAIN}`, password: "admin123" },
 ] as const;
 
 export const STATUSES = [
@@ -75,21 +91,21 @@ export const PRIORITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
 export const CATEGORIES = [
-  { id: "ELECTRICAL", label: "Electrical", unit: "Electrical Maintenance", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
+  { id: "ELECTRICAL", label: "Electrical", unit: "Electrical Maintenance Cell", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
   { id: "PLUMBING", label: "Plumbing", unit: "Civil & Plumbing", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
   { id: "WATER", label: "Water supply", unit: "Civil & Plumbing", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
-  { id: "CIVIL", label: "Civil / Infrastructure", unit: "Estate Office", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 72, LOW: 120 } },
+  { id: "CIVIL", label: "Civil / Infrastructure", unit: "Civil Works", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 72, LOW: 120 } },
   { id: "HOUSEKEEPING", label: "Cleaning", unit: "Housekeeping", sla: { CRITICAL: 6, HIGH: 12, MEDIUM: 24, LOW: 48 } },
-  { id: "IT_WIFI", label: "Internet / Wi-Fi", unit: "Data Centre", sla: { CRITICAL: 2, HIGH: 6, MEDIUM: 24, LOW: 48 } },
-  { id: "HOSTEL", label: "Hostel", unit: "Office of the Warden", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
+  { id: "IT_WIFI", label: "Internet / Wi-Fi", unit: "Network & Data Centre", sla: { CRITICAL: 2, HIGH: 6, MEDIUM: 24, LOW: 48 } },
+  { id: "HOSTEL", label: "Hostel", unit: "Hostel Maintenance Office", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 72 } },
   { id: "MESS", label: "Mess / Cafeteria", unit: "Student Centre & Mess", sla: { CRITICAL: 4, HIGH: 8, MEDIUM: 24, LOW: 48 } },
-  { id: "FURNITURE", label: "Furniture", unit: "Estate Office", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 72, LOW: 120 } },
+  { id: "FURNITURE", label: "Furniture", unit: "Carpentry", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 72, LOW: 120 } },
   { id: "ACADEMIC", label: "Classroom / Lab", unit: "Department Office", sla: { CRITICAL: 4, HIGH: 12, MEDIUM: 24, LOW: 72 } },
   { id: "TRANSPORT", label: "Transport", unit: "Transport Office", sla: { CRITICAL: 6, HIGH: 12, MEDIUM: 24, LOW: 72 } },
   { id: "SECURITY", label: "Security", unit: "Security Office", sla: { CRITICAL: 1, HIGH: 4, MEDIUM: 12, LOW: 24 } },
   { id: "MEDICAL", label: "Medical Centre", unit: "Campus Medical Centre", sla: { CRITICAL: 1, HIGH: 2, MEDIUM: 8, LOW: 24 } },
   { id: "SPORTS", label: "Sports & Gym", unit: "Physical Education", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 72, LOW: 120 } },
-  { id: "OTHER", label: "Other", unit: "Estate Office", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 48, LOW: 96 } },
+  { id: "OTHER", label: "Other", unit: "Facilities Helpdesk", sla: { CRITICAL: 8, HIGH: 24, MEDIUM: 48, LOW: 96 } },
 ] as const;
 
 export const STATUS_META: Record<Status, { label: string; tone: "slate" | "blue" | "violet" | "amber" | "green" | "red" | "orange" }> = {
@@ -115,9 +131,9 @@ export const PRIORITY_META: Record<Priority, { label: string; tone: "red" | "amb
 export const ROLE_META: Record<Role, { label: string; blurb: string }> = {
   STUDENT: { label: "Student", blurb: "Raise and track your own campus complaints" },
   FACULTY: { label: "Faculty", blurb: "Raise and track your own campus complaints" },
-  STAFF: { label: "Staff", blurb: "Raise complaints and work tickets assigned to you" },
-  WARDEN: { label: "Warden", blurb: "Raise complaints and manage authorised hostel operations" },
-  ADMIN: { label: "Estate admin", blurb: "Raise complaints and manage campus-wide service operations" },
+  TECHNICIAN: { label: "Maintenance Technician", blurb: "Raise complaints and work tickets routed to your department" },
+  DEPARTMENT_HEAD: { label: "Department Head", blurb: "Raise complaints and manage your department's tickets and technicians" },
+  SUPER_ADMIN: { label: "Super Admin", blurb: "Raise complaints and manage campus-wide operations, users and reports" },
 };
 
 export const LIFECYCLE: Status[] = [

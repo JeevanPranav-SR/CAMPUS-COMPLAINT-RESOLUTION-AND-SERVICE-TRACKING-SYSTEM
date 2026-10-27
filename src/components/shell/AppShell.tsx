@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   Bell,
@@ -42,11 +42,11 @@ const NAV: NavItem[] = [
   { href: "/dashboard/complaints/new", label: "Raise complaint", icon: Plus, permission: "complaint:create" },
   { href: "/dashboard/complaints?scope=mine", label: "My complaints", icon: ClipboardList, permission: "complaint:view_own" },
   { href: "/dashboard/complaints?scope=assigned", label: "Assigned work", icon: ClipboardList, permission: "complaint:view_assigned" },
-  { href: "/dashboard/complaints?scope=hostel", label: "Hostel complaints", icon: ClipboardList, permission: "complaint:view_hostel" },
+  { href: "/dashboard/complaints?scope=department", label: "Department complaints", icon: ClipboardList, permission: "complaint:view_department" },
   { href: "/dashboard/complaints?scope=all", label: "All campus complaints", icon: ClipboardList, permission: "complaint:view_all" },
   { href: "/dashboard/operations", label: "Operations", icon: Wrench, any: ["complaint:assign", "complaint:update_assigned"] },
   { href: "/dashboard/map", label: "Campus map", icon: MapPinned, permission: "complaint:view_own" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: Activity, any: ["analytics:view", "analytics:view_hostel"] },
+  { href: "/dashboard/analytics", label: "Analytics", icon: Activity, any: ["analytics:view", "analytics:view_department"] },
   { href: "/dashboard/users", label: "Users", icon: Users, permission: "user:manage" },
   { href: "/dashboard/audit", label: "Audit logs", icon: ScrollText, permission: "audit:view" },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
@@ -83,11 +83,33 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
   const [query, setQuery] = useState("");
   const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
 
+  const lastSeen = useRef<string | null>(null);
+
   useEffect(() => {
-    api<{ notifications: NotificationItem[]; unread: number }>("/api/notifications")
-      .then((payload) => setUnread(payload.unread))
-      .catch(() => setUnread(0));
-  }, [pathname]);
+    let active = true;
+    async function poll(announce: boolean) {
+      try {
+        const payload = await api<{ notifications: NotificationItem[]; unread: number }>("/api/notifications");
+        if (!active) return;
+        setUnread(payload.unread);
+        const newest = payload.notifications.find((item) => !item.read);
+        if (announce && newest && lastSeen.current !== null && newest.id !== lastSeen.current) {
+          toast(`${newest.title}: ${newest.body}`);
+        }
+        lastSeen.current = newest?.id ?? "";
+      } catch {
+        if (active) setUnread(0);
+      }
+    }
+    poll(false);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") poll(true);
+    }, 20000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [pathname, toast]);
 
   async function logout() {
     try {
@@ -103,21 +125,21 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
 
   const links = NAV.filter((item) => navVisible(user, item))
     .filter((item) => {
-      if (item.href === "/dashboard/complaints?scope=assigned" && (can(user, "complaint:view_all") || can(user, "complaint:view_hostel"))) return false;
-      if (item.href === "/dashboard/complaints?scope=hostel" && can(user, "complaint:view_all")) return false;
+      if (item.href === "/dashboard/complaints?scope=assigned" && (can(user, "complaint:view_all") || can(user, "complaint:view_department"))) return false;
+      if (item.href === "/dashboard/complaints?scope=department" && can(user, "complaint:view_all")) return false;
       return true;
     })
     .map((item) => {
       if (item.href === "/dashboard/analytics") {
-        return { ...item, label: can(user, "analytics:view") ? "Campus analytics" : "Hostel analytics" };
+        return { ...item, label: can(user, "analytics:view") ? "Campus analytics" : "Department analytics" };
       }
       if (item.href === "/dashboard/operations") {
         return {
           ...item,
           label: can(user, "complaint:view_all")
             ? "Operations"
-            : can(user, "complaint:view_hostel")
-              ? "Hostel operations"
+            : can(user, "complaint:view_department")
+              ? "Department operations"
               : "Work board",
         };
       }

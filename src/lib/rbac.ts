@@ -1,6 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { CAMPUS_LOCATIONS } from "./campus";
-import { CATEGORIES, type Role, type Status } from "./constants";
+import { type Role, type Status } from "./constants";
+import { departmentWhere, HOSTEL_LOCATION_IDS, opsDepartmentOf, routeComplaint } from "./routing";
+
+export { HOSTEL_LOCATION_IDS };
 
 export type AccessUser = {
   id: string;
@@ -13,7 +16,7 @@ export const PERMISSIONS = [
   "complaint:create",
   "complaint:view_own",
   "complaint:view_assigned",
-  "complaint:view_hostel",
+  "complaint:view_department",
   "complaint:view_all",
   "complaint:update_own",
   "complaint:update_assigned",
@@ -26,7 +29,7 @@ export const PERMISSIONS = [
   "department:manage",
   "category:manage",
   "analytics:view_personal",
-  "analytics:view_hostel",
+  "analytics:view_department",
   "analytics:view",
   "audit:view",
   "settings:manage",
@@ -47,22 +50,22 @@ const REPORTER_PERMISSIONS = [
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   STUDENT: REPORTER_PERMISSIONS,
   FACULTY: REPORTER_PERMISSIONS,
-  STAFF: [
+  TECHNICIAN: [
     ...REPORTER_PERMISSIONS,
     "complaint:view_assigned",
     "complaint:update_assigned",
     "complaint:resolve",
   ],
-  WARDEN: [
+  DEPARTMENT_HEAD: [
     ...REPORTER_PERMISSIONS,
-    "complaint:view_hostel",
+    "complaint:view_department",
     "complaint:update_assigned",
     "complaint:assign",
     "complaint:resolve",
     "complaint:escalate",
-    "analytics:view_hostel",
+    "analytics:view_department",
   ],
-  ADMIN: ALL_PERMISSIONS,
+  SUPER_ADMIN: ALL_PERMISSIONS,
 };
 
 export function permissionsFor(role: Role): Permission[] {
@@ -82,10 +85,6 @@ export function canAny(user: Pick<AccessUser, "role"> | null | undefined, permis
   return permissions.some((permission) => can(user, permission));
 }
 
-export const HOSTEL_LOCATION_IDS = CAMPUS_LOCATIONS.filter((item) => item.zone.startsWith("hostel")).map(
-  (item) => item.id,
-);
-
 export const STAFF_QUEUE_STATUSES: Status[] = ["SUBMITTED", "ACKNOWLEDGED", "REOPENED"];
 
 export function hostelLocationIds(user: Pick<AccessUser, "hostel">) {
@@ -99,30 +98,17 @@ export function hostelLocationIds(user: Pick<AccessUser, "hostel">) {
   return HOSTEL_LOCATION_IDS;
 }
 
-const UNIT_CATEGORIES: Record<string, string[]> = {
-  "electrical maintenance": ["ELECTRICAL"],
-  "civil & plumbing": ["PLUMBING", "WATER", "CIVIL"],
-  "data centre": ["IT_WIFI"],
-  "estate office": ["CIVIL", "FURNITURE", "OTHER", "ACADEMIC"],
-  "office of the warden": ["HOSTEL", "MESS"],
-  "transport office": ["TRANSPORT"],
-  "security office": ["SECURITY"],
-  "campus medical centre": ["MEDICAL"],
-  "physical education": ["SPORTS"],
-  "housekeeping": ["HOUSEKEEPING"],
-  "student centre & mess": ["MESS"],
-  "department office": ["ACADEMIC"],
-};
-
-export function categoryIdsForDepartment(department: string | null | undefined) {
-  if (!department) return [] as string[];
-  const mapped = UNIT_CATEGORIES[department.toLowerCase()];
-  if (mapped) return mapped;
-  return CATEGORIES.filter((item) => item.unit.toLowerCase() === department.toLowerCase()).map((item) => item.id);
+/** A Hostel Maintenance head assigned to one hostel block only sees that block. */
+function narrowsToHostel(user: Pick<AccessUser, "department" | "hostel">) {
+  return opsDepartmentOf(user.department) === "HOSTEL" && Boolean(user.hostel);
 }
 
-export function hostelComplaintWhere(user: Pick<AccessUser, "hostel" | "department">): Prisma.ComplaintWhereInput {
-  return { locationId: { in: hostelLocationIds(user) } };
+export function departmentScopeWhere(user: Pick<AccessUser, "department" | "hostel">): Prisma.ComplaintWhereInput {
+  const department = opsDepartmentOf(user.department);
+  if (!department) return { id: "__no_department__" };
+  const base = departmentWhere(department);
+  if (!narrowsToHostel(user)) return base;
+  return { AND: [base, { locationId: { in: hostelLocationIds(user) } }] };
 }
 
 export type ComplaintAccess = {
@@ -133,17 +119,27 @@ export type ComplaintAccess = {
   category: string;
 };
 
+export function inUserDepartment(user: Pick<AccessUser, "department" | "hostel">, complaint: Pick<ComplaintAccess, "category" | "locationId">) {
+  const department = opsDepartmentOf(user.department);
+  if (!department || routeComplaint(complaint.category, complaint.locationId) !== department) return false;
+  return !narrowsToHostel(user) || hostelLocationIds(user).includes(complaint.locationId);
+}
+
+function inTechnicianQueue(user: AccessUser, complaint: ComplaintAccess) {
+  return (
+    user.role === "TECHNICIAN" &&
+    !complaint.assigneeId &&
+    STAFF_QUEUE_STATUSES.includes(complaint.status as Status) &&
+    inUserDepartment(user, complaint)
+  );
+}
+
 export function canViewComplaint(user: AccessUser, complaint: ComplaintAccess) {
   if (hasPermission(user.role, "complaint:view_all")) return true;
   if (hasPermission(user.role, "complaint:view_own") && complaint.reporterId === user.id) return true;
   if (hasPermission(user.role, "complaint:view_assigned") && complaint.assigneeId === user.id) return true;
-  if (user.role === "STAFF" && !complaint.assigneeId && STAFF_QUEUE_STATUSES.includes(complaint.status as Status)) {
-    const categories = categoryIdsForDepartment(user.department);
-    return categories.length === 0 || categories.includes(complaint.category);
-  }
-  if (hasPermission(user.role, "complaint:view_hostel")) {
-    return hostelLocationIds(user).includes(complaint.locationId);
-  }
+  if (inTechnicianQueue(user, complaint)) return true;
+  if (hasPermission(user.role, "complaint:view_department")) return inUserDepartment(user, complaint);
   return false;
 }
 
@@ -154,12 +150,10 @@ export function canAssign(userOrRole: Pick<AccessUser, "role"> | Role) {
 
 export function canUpdateWork(user: AccessUser, complaint: ComplaintAccess) {
   if (hasPermission(user.role, "complaint:view_all")) return true;
-  if (hasPermission(user.role, "complaint:view_hostel")) {
-    return hostelLocationIds(user).includes(complaint.locationId);
-  }
+  if (hasPermission(user.role, "complaint:view_department")) return inUserDepartment(user, complaint);
   if (hasPermission(user.role, "complaint:update_assigned")) {
     if (complaint.assigneeId === user.id) return true;
-    if (user.role === "STAFF" && !complaint.assigneeId) return canViewComplaint(user, complaint);
+    return inTechnicianQueue(user, complaint);
   }
   return false;
 }
@@ -169,12 +163,7 @@ export function isOwner(user: Pick<AccessUser, "id">, complaint: Pick<ComplaintA
 }
 
 export function allowedTransitions(current: Status, user: AccessUser, complaint: ComplaintAccess): Status[] {
-  if (current === "CLOSED" || current === "REJECTED") {
-    if (isOwner(user, complaint) && hasPermission(user.role, "complaint:update_own") && current === "REJECTED") {
-      return [];
-    }
-    return [];
-  }
+  if (current === "CLOSED" || current === "REJECTED") return [];
 
   const next = new Set<Status>();
   const owner = isOwner(user, complaint);
@@ -199,32 +188,24 @@ export function allowedTransitions(current: Status, user: AccessUser, complaint:
   }
 
   if (hasPermission(user.role, "complaint:update_assigned")) {
-    if (user.role === "STAFF") {
+    if (user.role === "TECHNICIAN") {
       if (current === "REOPENED") {
         next.add("ASSIGNED");
         next.add("IN_PROGRESS");
       }
       if (STAFF_QUEUE_STATUSES.includes(current)) next.add("ASSIGNED");
       if (current === "ASSIGNED") next.add("IN_PROGRESS");
-      if (current === "IN_PROGRESS") {
-        next.add("ON_HOLD");
-        next.add("RESOLVED");
-      }
-      if (current === "ON_HOLD") {
-        next.add("IN_PROGRESS");
-        next.add("RESOLVED");
-      }
       if (current === "ESCALATED") next.add("IN_PROGRESS");
-    } else {
-      if (current === "ASSIGNED" || current === "REOPENED" || current === "ESCALATED") next.add("IN_PROGRESS");
-      if (current === "IN_PROGRESS") {
-        next.add("ON_HOLD");
-        next.add("RESOLVED");
-      }
-      if (current === "ON_HOLD") {
-        next.add("IN_PROGRESS");
-        next.add("RESOLVED");
-      }
+    } else if (current === "ASSIGNED" || current === "REOPENED" || current === "ESCALATED") {
+      next.add("IN_PROGRESS");
+    }
+    if (current === "IN_PROGRESS") {
+      next.add("ON_HOLD");
+      next.add("RESOLVED");
+    }
+    if (current === "ON_HOLD") {
+      next.add("IN_PROGRESS");
+      next.add("RESOLVED");
     }
   }
 
@@ -243,7 +224,7 @@ export function allowedTransitions(current: Status, user: AccessUser, complaint:
   return [...next];
 }
 
-export type ComplaintScopeName = "default" | "mine" | "assigned" | "work" | "hostel" | "department" | "all";
+export type ComplaintScopeName = "default" | "mine" | "assigned" | "work" | "department" | "all";
 
 export function isForbiddenScope(
   scope: Prisma.ComplaintWhereInput | { forbidden: true },
@@ -251,20 +232,21 @@ export function isForbiddenScope(
   return "forbidden" in scope && scope.forbidden === true;
 }
 
-export function staffWorkWhere(user: AccessUser): Prisma.ComplaintWhereInput {
-  const categories = categoryIdsForDepartment(user.department);
-  const queue: Prisma.ComplaintWhereInput = {
-    assigneeId: null,
-    status: { in: [...STAFF_QUEUE_STATUSES] },
+export function technicianWorkWhere(user: AccessUser): Prisma.ComplaintWhereInput {
+  const department = opsDepartmentOf(user.department);
+  if (!department) return { assigneeId: user.id };
+  return {
+    OR: [
+      { assigneeId: user.id },
+      { AND: [{ assigneeId: null, status: { in: [...STAFF_QUEUE_STATUSES] } }, departmentScopeWhere(user)] },
+    ],
   };
-  if (categories.length) queue.category = { in: categories };
-  return { OR: [{ assigneeId: user.id }, queue] };
 }
 
 /** Scope used for operations, map, and dashboard work queues. Never mixes personal tickets into ops lists. */
 export function operationalScopeParam(user: Pick<AccessUser, "role">) {
   if (hasPermission(user.role, "complaint:view_all")) return "all";
-  if (hasPermission(user.role, "complaint:view_hostel")) return "hostel";
+  if (hasPermission(user.role, "complaint:view_department")) return "department";
   if (hasPermission(user.role, "complaint:view_assigned")) return "work";
   return "mine";
 }
@@ -273,7 +255,7 @@ export function complaintScope(
   user: AccessUser,
   scope: string,
 ): Prisma.ComplaintWhereInput | { forbidden: true } {
-  const name = (scope || "default") as ComplaintScopeName;
+  const name = (scope === "hostel" ? "department" : scope || "default") as ComplaintScopeName;
 
   if (name === "mine") {
     if (!hasPermission(user.role, "complaint:view_own")) return { forbidden: true };
@@ -284,18 +266,14 @@ export function complaintScope(
     return { assigneeId: user.id };
   }
   if (name === "work") {
-    if (!hasPermission(user.role, "complaint:view_assigned") && !hasPermission(user.role, "complaint:view_all")) {
-      return { forbidden: true };
-    }
     if (hasPermission(user.role, "complaint:view_all")) return {};
-    return staffWorkWhere(user);
+    if (!hasPermission(user.role, "complaint:view_assigned")) return { forbidden: true };
+    return technicianWorkWhere(user);
   }
-  if (name === "hostel" || name === "department") {
-    if (!hasPermission(user.role, "complaint:view_hostel") && !hasPermission(user.role, "complaint:view_all")) {
-      return { forbidden: true };
-    }
+  if (name === "department") {
     if (hasPermission(user.role, "complaint:view_all")) return {};
-    return hostelComplaintWhere(user);
+    if (!hasPermission(user.role, "complaint:view_department")) return { forbidden: true };
+    return departmentScopeWhere(user);
   }
   if (name === "all") {
     if (!hasPermission(user.role, "complaint:view_all")) return { forbidden: true };
@@ -308,8 +286,8 @@ export function complaintScope(
 }
 
 export function analyticsScope(user: AccessUser): Prisma.ComplaintWhereInput | null {
-  if (hasPermission(user.role, "analytics:view") || hasPermission(user.role, "complaint:view_all")) return {};
-  if (hasPermission(user.role, "analytics:view_hostel")) return hostelComplaintWhere(user);
+  if (hasPermission(user.role, "analytics:view")) return {};
+  if (hasPermission(user.role, "analytics:view_department")) return departmentScopeWhere(user);
   if (hasPermission(user.role, "analytics:view_personal")) return { reporterId: user.id };
   return null;
 }
@@ -323,9 +301,5 @@ export function isOps(role: Role) {
 }
 
 export function isAdmin(role: Role) {
-  return role === "ADMIN";
-}
-
-export function wardenLocationIds(user: Pick<AccessUser, "hostel">) {
-  return hostelLocationIds(user);
+  return role === "SUPER_ADMIN";
 }

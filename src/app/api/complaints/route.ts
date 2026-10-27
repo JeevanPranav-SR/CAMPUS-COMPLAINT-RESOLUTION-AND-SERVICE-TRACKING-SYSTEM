@@ -2,14 +2,15 @@ import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants
 import { fail, isAllowedImage, ok, readJson } from "@/lib/http";
 import { notify, syncOverdueSlaNotifications } from "@/lib/notify";
 import { writeAudit } from "@/lib/audit";
-import { can, hostelLocationIds, isForbiddenScope } from "@/lib/rbac";
+import { can, inUserDepartment, isForbiddenScope } from "@/lib/rbac";
+import { departmentName, routeComplaint } from "@/lib/routing";
 import { prisma } from "@/lib/prisma";
 import { complaintScope, ticketInclude, ticketListSelect } from "@/lib/queries";
 import { getSession } from "@/lib/session";
 import { allocateTicketNo } from "@/lib/tickets";
 import { CAMPUS_LOCATIONS, nearestLocation } from "@/lib/campus";
 import type { Prisma } from "@prisma/client";
-import { normalizeRole } from "@/lib/constants";
+import { normalizeRole, roleValues } from "@/lib/constants";
 
 function searchWhere(q: string): Prisma.ComplaintWhereInput {
   const trimmed = q.trim();
@@ -136,6 +137,7 @@ export async function POST(request: Request) {
     ? body.locationId
     : nearest.id;
   const hours = slaHours(body.category, body.priority);
+  const department = routeComplaint(body.category, locationId);
 
   let complaint = null;
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -161,7 +163,7 @@ export async function POST(request: Request) {
             create: {
               status: "SUBMITTED",
               action: "STATUS",
-              note: `Filed from ${nearest.name}${body.landmark ? ` · ${body.landmark}` : ""}.`,
+              note: `Filed from ${nearest.name}${body.landmark ? ` · ${body.landmark}` : ""}. Auto-routed to ${departmentName(department)}.`,
               actorId: user.id,
             },
           },
@@ -181,15 +183,14 @@ export async function POST(request: Request) {
   if (!complaint) return fail("CONFLICT", "Could not allocate a ticket number. Please try again.", 409);
 
   const supervisors = await prisma.user.findMany({
-    where: { active: true, role: { in: ["ADMIN", "WARDEN", "SUPER_ADMIN", "DEPARTMENT_ADMIN"] } },
+    where: { active: true, role: { in: [...roleValues("SUPER_ADMIN"), ...roleValues("DEPARTMENT_HEAD")] } },
     select: { id: true, role: true, hostel: true, department: true },
   });
   const recipients = supervisors
     .filter((item) => {
       const role = normalizeRole(item.role);
-      if (role === "ADMIN") return true;
-      if (role === "WARDEN") return hostelLocationIds(item).includes(locationId);
-      return false;
+      if (role === "SUPER_ADMIN") return true;
+      return inUserDepartment(item, complaint);
     })
     .map((item) => item.id);
   await Promise.all(
@@ -198,11 +199,18 @@ export async function POST(request: Request) {
         userId,
         complaintId: complaint.id,
         actorId: user.id,
-        title: "New complaint submitted",
+        title: `New ${departmentName(department)} complaint`,
         body: `${complaint.ticketNo}: ${complaint.title}`,
       }),
     ),
   );
+  await notify({
+    userId: user.id,
+    complaintId: complaint.id,
+    title: `${complaint.ticketNo} received`,
+    body: `Your complaint was routed to ${departmentName(department)}. Track it with reference ${complaint.ticketNo}.`,
+    external: true,
+  });
   await writeAudit({
     actorId: user.id,
     action: "COMPLAINT_CREATE",
@@ -211,5 +219,5 @@ export async function POST(request: Request) {
     detail: `${complaint.ticketNo} submitted`,
   });
 
-  return ok({ complaint }, 201);
+  return ok({ complaint: { ...complaint, department, departmentName: departmentName(department) } }, 201);
 }

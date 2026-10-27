@@ -17,7 +17,11 @@ type Account = {
   hostel: string | null;
   phone: string | null;
   notifyInApp: boolean;
+  notifyEmail: boolean;
+  notifySms: boolean;
 };
+
+type Channels = { email: boolean; sms: boolean };
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -25,18 +29,24 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyEmail, setNotifyEmail] = useState(true);
+  const [notifySms, setNotifySms] = useState(false);
+  const [channels, setChannels] = useState<Channels>({ email: false, sms: false });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
   const [theme, setTheme] = useState("light");
 
   useEffect(() => {
-    api<{ user: Account }>("/api/account")
+    api<{ user: Account; channels: Channels }>("/api/account")
       .then((payload) => {
         setUser(payload.user);
         setName(payload.user.name);
         setPhone(payload.user.phone ?? "");
         setNotifyInApp(payload.user.notifyInApp);
+        setNotifyEmail(payload.user.notifyEmail);
+        setNotifySms(payload.user.notifySms);
+        setChannels(payload.channels);
         setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
       })
       .catch((err: Error) => setError(err.message));
@@ -47,7 +57,7 @@ export default function SettingsPage() {
     try {
       await api("/api/account", {
         method: "PATCH",
-        body: JSON.stringify({ name, phone, notifyInApp }),
+        body: JSON.stringify({ name, phone, notifyInApp, notifyEmail, notifySms }),
       });
       toast("Profile updated.");
     } catch (err) {
@@ -103,10 +113,23 @@ export default function SettingsPage() {
           <Field label="Hostel / block">
             <Input value={user.hostel ?? "—"} disabled />
           </Field>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={notifyInApp} onChange={(event) => setNotifyInApp(event.target.checked)} />
-            In-app notifications
-          </label>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Alerts for status changes, assignments and resolutions</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={notifyInApp} onChange={(event) => setNotifyInApp(event.target.checked)} />
+              In-app notifications
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={notifyEmail} onChange={(event) => setNotifyEmail(event.target.checked)} />
+              Email to {user.email}
+              {!channels.email ? <span className="text-xs text-[var(--muted)]">(email service not configured yet)</span> : null}
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={notifySms} disabled={!phone.trim()} onChange={(event) => setNotifySms(event.target.checked)} />
+              SMS to {phone.trim() || "your phone (add a number above)"}
+              {!channels.sms ? <span className="text-xs text-[var(--muted)]">(SMS service not configured yet)</span> : null}
+            </label>
+          </fieldset>
           <Button type="submit">Save profile</Button>
         </Card>
       </form>

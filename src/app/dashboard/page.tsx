@@ -28,22 +28,22 @@ function dashboardCopy(role: SessionUser["role"]) {
       stats: "own" as const,
     };
   }
-  if (role === "STAFF") {
+  if (role === "TECHNICIAN") {
     return {
-      description: "File your own issues and work tickets assigned to you.",
+      description: "File your own issues and work the tickets routed to your department or assigned to you.",
       primary: { href: "/dashboard/operations", label: "Open assigned work" },
       stats: "work" as const,
     };
   }
-  if (role === "WARDEN") {
+  if (role === "DEPARTMENT_HEAD") {
     return {
-      description: "Raise your own issues and manage authorised hostel complaints.",
-      primary: { href: "/dashboard/operations", label: "Manage hostel work" },
+      description: "Raise your own issues, triage complaints routed to your department, and assign technicians.",
+      primary: { href: "/dashboard/operations", label: "Manage department work" },
       stats: "ops" as const,
     };
   }
   return {
-    description: "Raise issues, run campus operations, and monitor service performance.",
+    description: "Super Admin: oversee every department, manage users and roles, and monitor service performance.",
     primary: { href: "/dashboard/complaints?scope=all", label: "View all complaints" },
     stats: "ops" as const,
   };
@@ -67,7 +67,7 @@ export default function OverviewPage() {
       .then(async (mePayload) => {
         if (!active) return;
         const user = mePayload.user;
-        const showStats = canAny(user, ["analytics:view", "analytics:view_hostel"]);
+        const showStats = canAny(user, ["analytics:view", "analytics:view_department"]);
         const opsScope = operationalScopeParam(user);
         const ops = opsScope !== "mine";
         const [minePayload, opsPayload, statsPayload, notePayload] = await Promise.all([

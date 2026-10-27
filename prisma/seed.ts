@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { upgrade } from "./upgrade";
 
 const prisma = new PrismaClient();
 const ago = (h: number) => new Date(Date.now() - h * 3600000);
@@ -21,19 +22,19 @@ async function main() {
   };
 
   const admin = await prisma.user.create({
-    data: { name: "Kavitha Estate", email: "admin@bitsathy.ac.in", passwordHash: password.admin, role: "ADMIN", department: "Estate Office", phone: "04295-226000" },
+    data: { name: "Kavitha R", email: "admin@bitsathy.ac.in", passwordHash: password.admin, role: "SUPER_ADMIN", department: "Administration", phone: "04295-226000" },
   });
   const ramesh = await prisma.user.create({
-    data: { name: "Ramesh M", email: "ramesh.m@bitsathy.ac.in", passwordHash: password.staff, role: "STAFF", department: "Electrical Maintenance", phone: "99429 21201" },
+    data: { name: "Ramesh M", email: "ramesh.m@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "Electrical", phone: "99429 21201" },
   });
   const arun = await prisma.user.create({
-    data: { name: "Arun P", email: "arun.p@bitsathy.ac.in", passwordHash: password.staff, role: "STAFF", department: "Civil & Plumbing", phone: "99429 21202" },
+    data: { name: "Arun P", email: "arun.p@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "Facilities / Civil", phone: "99429 21202" },
   });
   const nisha = await prisma.user.create({
-    data: { name: "Nisha V", email: "nisha.v@bitsathy.ac.in", passwordHash: password.staff, role: "STAFF", department: "Data Centre", phone: "99429 21203" },
+    data: { name: "Nisha V", email: "nisha.v@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "IT Infrastructure", phone: "99429 21203" },
   });
   const warden = await prisma.user.create({
-    data: { name: "Lakshmi Warden", email: "lakshmi.w@bitsathy.ac.in", passwordHash: password.warden, role: "WARDEN", department: "Office of the Warden", hostel: "Gents Hostels", phone: "99429 21210" },
+    data: { name: "Lakshmi N", email: "lakshmi.w@bitsathy.ac.in", passwordHash: password.warden, role: "DEPARTMENT_HEAD", department: "Hostel Maintenance", phone: "99429 21210" },
   });
   const priya = await prisma.user.create({
     data: { name: "Priya S", email: "priya.s@bitsathy.ac.in", passwordHash: password.student, role: "STUDENT", department: "CSE", registerNo: "7376221CS201" },
@@ -100,8 +101,8 @@ async function main() {
       assignedAt: ago(9),
       events: [
         { status: "SUBMITTED", note: "Filed from student portal.", at: ago(10), actorId: priya.id },
-        { status: "ACKNOWLEDGED", note: "Estate office acknowledged the outage.", at: ago(9.5), actorId: admin.id },
-        { status: "ASSIGNED", note: "Assigned to Ramesh M, Electrical Maintenance.", at: ago(9), actorId: admin.id },
+        { status: "ACKNOWLEDGED", note: "Electrical department acknowledged the outage.", at: ago(9.5), actorId: admin.id },
+        { status: "ASSIGNED", note: "Assigned to Ramesh M, Electrical.", at: ago(9), actorId: admin.id },
         { status: "IN_PROGRESS", note: "Fault isolated to MCB in panel SF-2E.", at: ago(3), actorId: ramesh.id },
       ],
       comments: [{ body: "Please restore before evening lab hours.", at: ago(8), actorId: priya.id }],
@@ -149,7 +150,7 @@ async function main() {
       acknowledgedAt: ago(4.5),
       events: [
         { status: "SUBMITTED", note: "Hostel resident report.", at: ago(5), actorId: karthik.id },
-        { status: "ACKNOWLEDGED", note: "Warden forwarded to Civil & Plumbing.", at: ago(4.5), actorId: warden.id },
+        { status: "ACKNOWLEDGED", note: "Hostel Maintenance acknowledged the leak.", at: ago(4.5), actorId: warden.id },
       ],
     },
     {
@@ -379,7 +380,7 @@ async function main() {
     {
       ticketNo: "CMP-2026-00066",
       title: "Broken street-side turnstile near Learning Centre",
-      description: "The pedestrian gate latch near Learning Centre does not lock after 9 PM. Security requested an estate fix.",
+      description: "The pedestrian gate latch near Learning Centre does not lock after 9 PM. Security requested a facilities fix.",
       category: "SECURITY",
       priority: "HIGH",
       status: "ASSIGNED",
@@ -396,7 +397,7 @@ async function main() {
       assignedAt: ago(5),
       events: [
         { status: "SUBMITTED", note: "Night security log forwarded by student.", at: ago(6), actorId: karthik.id },
-        { status: "ACKNOWLEDGED", note: "Estate desk acknowledged the latch failure.", at: ago(5.5), actorId: admin.id },
+        { status: "ACKNOWLEDGED", note: "Facilities desk acknowledged the latch failure.", at: ago(5.5), actorId: admin.id },
         { status: "ASSIGNED", note: "Assigned to Arun P for mechanical repair.", at: ago(5), actorId: admin.id },
       ],
     },
@@ -433,6 +434,7 @@ async function main() {
     ],
   });
 
+  await upgrade(prisma);
   console.log("Seeded campus operations data.");
 }
 
