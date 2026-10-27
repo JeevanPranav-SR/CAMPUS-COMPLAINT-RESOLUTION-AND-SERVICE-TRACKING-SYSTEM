@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
 import { fail, isAllowedImage, ok, readJson } from "@/lib/http";
 import { notify, syncOverdueSlaNotifications } from "@/lib/notify";
@@ -38,7 +39,7 @@ function searchWhere(q: string): Prisma.ComplaintWhereInput {
 export async function GET(request: Request) {
   const user = await getSession();
   if (!user) return fail("UNAUTHENTICATED", "Sign in required.", 401);
-  await syncOverdueSlaNotifications();
+  after(syncOverdueSlaNotifications);
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim() ?? "";
@@ -182,41 +183,44 @@ export async function POST(request: Request) {
   }
   if (!complaint) return fail("CONFLICT", "Could not allocate a ticket number. Please try again.", 409);
 
-  const supervisors = await prisma.user.findMany({
-    where: { active: true, role: { in: [...roleValues("SUPER_ADMIN"), ...roleValues("DEPARTMENT_HEAD")] } },
-    select: { id: true, role: true, hostel: true, department: true },
-  });
-  const recipients = supervisors
-    .filter((item) => {
-      const role = normalizeRole(item.role);
-      if (role === "SUPER_ADMIN") return true;
-      return inUserDepartment(item, complaint);
-    })
-    .map((item) => item.id);
-  await Promise.all(
-    recipients.map((userId) =>
-      notify({
-        userId,
-        complaintId: complaint.id,
-        actorId: user.id,
-        title: `New ${departmentName(department)} complaint`,
-        body: `${complaint.ticketNo}: ${complaint.title}`,
-      }),
-    ),
-  );
-  await notify({
-    userId: user.id,
-    complaintId: complaint.id,
-    title: `${complaint.ticketNo} received`,
-    body: `Your complaint was routed to ${departmentName(department)}. Track it with reference ${complaint.ticketNo}.`,
-    external: true,
-  });
-  await writeAudit({
-    actorId: user.id,
-    action: "COMPLAINT_CREATE",
-    entity: "Complaint",
-    entityId: complaint.id,
-    detail: `${complaint.ticketNo} submitted`,
+  const created = complaint;
+  after(async () => {
+    const supervisors = await prisma.user.findMany({
+      where: { active: true, role: { in: [...roleValues("SUPER_ADMIN"), ...roleValues("DEPARTMENT_HEAD")] } },
+      select: { id: true, role: true, hostel: true, department: true },
+    });
+    const recipients = supervisors
+      .filter((item) => {
+        const role = normalizeRole(item.role);
+        if (role === "SUPER_ADMIN") return true;
+        return inUserDepartment(item, created);
+      })
+      .map((item) => item.id);
+    await Promise.all(
+      recipients.map((userId) =>
+        notify({
+          userId,
+          complaintId: created.id,
+          actorId: user.id,
+          title: `New ${departmentName(department)} complaint`,
+          body: `${created.ticketNo}: ${created.title}`,
+        }),
+      ),
+    );
+    await notify({
+      userId: user.id,
+      complaintId: created.id,
+      title: `${created.ticketNo} received`,
+      body: `Your complaint was routed to ${departmentName(department)}. Track it with reference ${created.ticketNo}.`,
+      external: true,
+    });
+    await writeAudit({
+      actorId: user.id,
+      action: "COMPLAINT_CREATE",
+      entity: "Complaint",
+      entityId: created.id,
+      detail: `${created.ticketNo} submitted`,
+    });
   });
 
   return ok({ complaint: { ...complaint, department, departmentName: departmentName(department) } }, 201);

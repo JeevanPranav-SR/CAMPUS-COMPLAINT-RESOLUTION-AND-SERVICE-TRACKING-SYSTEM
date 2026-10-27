@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { fail, ok, readJson } from "@/lib/http";
 import { notify } from "@/lib/notify";
 import { can, canViewComplaint } from "@/lib/rbac";
@@ -21,27 +22,31 @@ export async function POST(request: Request, { params }: Params) {
   if (!canViewComplaint(user, complaint)) return fail("FORBIDDEN", "You cannot comment on this complaint.", 403);
   if (!can(user, "complaint:comment")) return fail("FORBIDDEN", "You cannot comment on this complaint.", 403);
 
-  await prisma.comment.create({ data: { complaintId: id, actorId: user.id, body: text } });
-  await prisma.timelineEvent.create({
+  await prisma.$transaction([
+    prisma.comment.create({ data: { complaintId: id, actorId: user.id, body: text } }),
+    prisma.timelineEvent.create({
     data: {
       complaintId: id,
       actorId: user.id,
       status: complaint.status,
       action: "COMMENT",
-      note: text,
-    },
-  });
+        note: text,
+      },
+    }),
+  ]);
 
   const targets = [complaint.reporterId, complaint.assigneeId].filter(Boolean) as string[];
-  await Promise.all(
-    targets.map((userId) =>
-      notify({
-        userId,
-        complaintId: id,
-        actorId: user.id,
-        title: `New comment on ${complaint.ticketNo}`,
-        body: text.slice(0, 140),
-      }),
+  after(() =>
+    Promise.all(
+      targets.map((userId) =>
+        notify({
+          userId,
+          complaintId: id,
+          actorId: user.id,
+          title: `New comment on ${complaint.ticketNo}`,
+          body: text.slice(0, 140),
+        }),
+      ),
     ),
   );
 

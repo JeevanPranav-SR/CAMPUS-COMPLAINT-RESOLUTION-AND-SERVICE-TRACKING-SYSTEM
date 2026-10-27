@@ -67,6 +67,11 @@ export async function upgrade(prisma: PrismaClient) {
   }
 
   await prisma.complaint.updateMany({
+    where: { assigneeId: { not: null }, assignee: { role: { notIn: ["TECHNICIAN", "STAFF"] } } },
+    data: { assigneeId: null },
+  });
+
+  await prisma.complaint.updateMany({
     where: { ticketNo: "CMP-2026-00045", ratingComment: null },
     data: { ratingComment: "Desks were replaced within a day. Thank you." },
   });

@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { fail, ok, readJson } from "@/lib/http";
 import { notify } from "@/lib/notify";
 import { writeAudit } from "@/lib/audit";
@@ -13,7 +14,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { ticketInclude } from "@/lib/queries";
 import { getSession } from "@/lib/session";
-import { normalizeRole, roleValues, STATUSES, slaHours, type Priority, type Status } from "@/lib/constants";
+import { ACTION_LABELS, ASSIGNABLE_STATUSES, normalizeRole, REASON_REQUIRED, roleValues, STATUSES, slaHours, type Priority, type Status } from "@/lib/constants";
 import { departmentName, opsDepartmentOf, routeComplaint } from "@/lib/routing";
 
 type Params = { params: Promise<{ id: string }> };
@@ -66,7 +67,10 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!parsed.ok) return parsed.response;
   const body = parsed.value;
 
-  const existing = await prisma.complaint.findUnique({ where: { id } });
+  const [existing, technicians] = await Promise.all([
+    prisma.complaint.findUnique({ where: { id } }),
+    body.assigneeId && canAssign(user) ? assignableTechnicians(user) : Promise.resolve([]),
+  ]);
   if (!existing) return fail("NOT_FOUND", "Complaint not found.", 404);
   if (!canViewComplaint(user, existing)) return fail("FORBIDDEN", "You cannot update this complaint.", 403);
 
@@ -84,13 +88,12 @@ export async function PATCH(request: Request, { params }: Params) {
     const selfAssign = technician && body.assigneeId === user.id;
     if (!canAssign(user) && !selfAssign) return fail("FORBIDDEN", "You cannot assign technicians.", 403);
     if (body.assigneeId && !selfAssign) {
-      const allowedIds = (await assignableTechnicians(user)).map((item) => item.id);
-      if (!allowedIds.includes(body.assigneeId)) {
+      if (!technicians.some((item) => item.id === body.assigneeId)) {
         return fail("VALIDATION", "Assign an active technician from the responsible department.", 400);
       }
     }
     assigneeId = body.assigneeId;
-    if (body.assigneeId && ["SUBMITTED", "ACKNOWLEDGED", "REOPENED", "ASSIGNED", "ESCALATED"].includes(existing.status)) {
+    if (body.assigneeId && ASSIGNABLE_STATUSES.includes(existing.status as Status)) {
       nextStatus = "ASSIGNED";
     }
   }
@@ -104,6 +107,9 @@ export async function PATCH(request: Request, { params }: Params) {
       technician && body.status === "ASSIGNED" && body.assigneeId === user.id && allowed.includes("ASSIGNED");
     if (!override && !allowed.includes(body.status) && !selfAssign) {
       return fail("FORBIDDEN", "That status change is not allowed.", 403);
+    }
+    if (REASON_REQUIRED.includes(body.status) && body.status !== existing.status && note.length < 4) {
+      return fail("VALIDATION", `Give a short reason to ${ACTION_LABELS[body.status].toLowerCase()} this complaint.`, 400);
     }
     if (isOwner(user, existing) && body.status === "REOPENED" && !note) {
       return fail("VALIDATION", "Please explain why the issue is not resolved.", 400);
@@ -189,54 +195,56 @@ export async function PATCH(request: Request, { params }: Params) {
     include: ticketInclude,
   });
 
-  await writeAudit({
-    actorId: user.id,
-    action: `COMPLAINT_${action}`,
-    entity: "Complaint",
-    entityId: complaint.id,
-    detail: `${complaint.ticketNo} ${existing.status} → ${nextStatus}`,
-  });
-
-  const recipients = new Set<string>();
-  recipients.add(complaint.reporterId);
-  if (complaint.assigneeId) recipients.add(complaint.assigneeId);
-  if (nextStatus === "ESCALATED") {
-    const department = routeComplaint(complaint.category, complaint.locationId);
-    const managers = await prisma.user.findMany({
-      where: { active: true, role: { in: [...roleValues("SUPER_ADMIN"), ...roleValues("DEPARTMENT_HEAD")] } },
-      select: { id: true, role: true, department: true },
+  after(async () => {
+    await writeAudit({
+      actorId: user.id,
+      action: `COMPLAINT_${action}`,
+      entity: "Complaint",
+      entityId: complaint.id,
+      detail: `${complaint.ticketNo} ${existing.status} → ${nextStatus}`,
     });
-    managers
-      .filter((item) => normalizeRole(item.role) === "SUPER_ADMIN" || opsDepartmentOf(item.department) === department)
-      .forEach((item) => recipients.add(item.id));
-  }
 
-  const statusText = nextStatus.replace(/_/g, " ").toLowerCase();
-  await Promise.all(
-    [...recipients].map((userId) => {
-      const isAssignee = userId === complaint.assigneeId;
-      const body =
-        newAssignment && isAssignee
-          ? `${complaint.ticketNo} "${complaint.title}" has been assigned to you.`
-          : nextStatus === "RESOLVED"
-            ? `${complaint.ticketNo} has been marked resolved. Please verify the fix or reopen it.`
-            : nextStatus === "REOPENED"
-              ? `${complaint.ticketNo} was reopened and needs attention.`
-              : nextStatus === "ASSIGNED"
-                ? `${complaint.ticketNo} was assigned to technician ${complaint.assignee?.name ?? ""}.`.trim()
-                : nextStatus === "ESCALATED"
-                  ? `${complaint.ticketNo} was escalated.`
-                  : `${complaint.ticketNo} is now ${statusText}.`;
-      return notify({
-        userId,
-        complaintId: complaint.id,
-        actorId: user.id,
-        title: newAssignment && isAssignee ? "New ticket assigned to you" : `${complaint.ticketNo} updated`,
-        body,
-        external: true,
+    const recipients = new Set<string>();
+    recipients.add(complaint.reporterId);
+    if (complaint.assigneeId) recipients.add(complaint.assigneeId);
+    if (nextStatus === "ESCALATED") {
+      const department = routeComplaint(complaint.category, complaint.locationId);
+      const managers = await prisma.user.findMany({
+        where: { active: true, role: { in: [...roleValues("SUPER_ADMIN"), ...roleValues("DEPARTMENT_HEAD")] } },
+        select: { id: true, role: true, department: true },
       });
-    }),
-  );
+      managers
+        .filter((item) => normalizeRole(item.role) === "SUPER_ADMIN" || opsDepartmentOf(item.department) === department)
+        .forEach((item) => recipients.add(item.id));
+    }
+
+    const statusText = nextStatus.replace(/_/g, " ").toLowerCase();
+    await Promise.all(
+      [...recipients].map((userId) => {
+        const isAssignee = userId === complaint.assigneeId;
+        const body =
+          newAssignment && isAssignee
+            ? `${complaint.ticketNo} "${complaint.title}" has been assigned to you.`
+            : nextStatus === "RESOLVED"
+              ? `${complaint.ticketNo} has been marked resolved. Please verify the fix or reopen it.`
+              : nextStatus === "REOPENED"
+                ? `${complaint.ticketNo} was reopened and needs attention.`
+                : nextStatus === "ASSIGNED"
+                  ? `${complaint.ticketNo} was assigned to technician ${complaint.assignee?.name ?? ""}.`.trim()
+                  : nextStatus === "ESCALATED"
+                    ? `${complaint.ticketNo} was escalated.`
+                    : `${complaint.ticketNo} is now ${statusText}.`;
+        return notify({
+          userId,
+          complaintId: complaint.id,
+          actorId: user.id,
+          title: newAssignment && isAssignee ? "New ticket assigned to you" : `${complaint.ticketNo} updated`,
+          body,
+          external: true,
+        });
+      }),
+    );
+  });
 
   return ok({ complaint });
 }

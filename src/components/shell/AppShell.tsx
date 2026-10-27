@@ -146,15 +146,23 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
       return item;
     });
 
+  function searchTickets(event: React.FormEvent) {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    params.set("scope", operationalScopeParam(user));
+    if (query.trim()) params.set("q", query.trim());
+    router.push(`/dashboard/complaints?${params.toString()}`);
+  }
+
   return (
     <UserProvider user={user}>
-      <div className="min-h-screen overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col bg-[var(--sidebar)] text-[var(--sidebar-text)] md:flex">
-          <div className="border-b border-white/10 px-4 py-4">
-            <BrandLockup light />
-            <p className="mt-2 text-[11px] text-white/60">{ROLE_META[user.role].label}</p>
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] md:grid md:grid-cols-[16.5rem_minmax(0,1fr)]">
+        <aside className="sticky top-0 hidden h-screen min-w-0 flex-col overflow-hidden bg-[var(--sidebar)] text-[var(--sidebar-text)] md:flex">
+          <div className="min-w-0 shrink-0 overflow-hidden border-b border-white/10 px-3 py-4">
+            <BrandLockup light stacked />
+            <p className="mt-3 inline-block rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/80">{ROLE_META[user.role].label}</p>
           </div>
-          <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
+          <nav className="min-w-0 flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-3">
             {links.map((item) => {
               const Icon = item.icon;
               const active = isActive(pathname, search, item.href);
@@ -176,27 +184,18 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
               );
             })}
           </nav>
-          <div className="border-t border-white/10 p-4">
+          <div className="min-w-0 overflow-hidden border-t border-white/10 p-4">
             <p className="truncate text-sm font-medium">{user.name}</p>
             <p className="text-[11px] text-white/60">{ROLE_META[user.role].label}</p>
           </div>
         </aside>
 
-        <div className="md:pl-60">
-          <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-            <button className="md:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
+        <div className="flex min-w-0 flex-col">
+          <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+            <button className="shrink-0 md:hidden" onClick={() => setOpen(true)} aria-label="Open navigation">
               <Menu className="h-5 w-5" />
             </button>
-            <form
-              className="relative min-w-0 flex-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-            const params = new URLSearchParams();
-            params.set("scope", operationalScopeParam(user));
-            if (query.trim()) params.set("q", query.trim());
-            router.push(`/dashboard/complaints?${params.toString()}`);
-              }}
-            >
+            <form className="relative min-w-0 flex-1" onSubmit={searchTickets}>
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 value={query}
@@ -206,17 +205,17 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
                 className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] py-2 pl-9 pr-3 text-sm"
               />
             </form>
-            <Link href="/dashboard/notifications" className="relative rounded-md p-2 hover:bg-slate-100" aria-label="Notifications">
+            <Link href="/dashboard/notifications" className="relative shrink-0 rounded-md p-2 hover:bg-slate-100" aria-label="Notifications">
               <Bell className="h-5 w-5" />
               {unread > 0 ? <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" /> : null}
             </Link>
-            <span className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 sm:inline">
+            <span className="hidden shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 sm:inline">
               {ROLE_META[user.role].label}
             </span>
-            <button onClick={logout} className="rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Sign out">
+            <button onClick={logout} className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </button>
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white">
               {initials(user.name)}
             </div>
           </header>
@@ -224,9 +223,11 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           {open ? (
             <div className="fixed inset-0 z-50 bg-black/40 md:hidden" onClick={() => setOpen(false)}>
               <div className="h-full w-64 overflow-y-auto bg-[var(--sidebar)] p-4 text-[var(--sidebar-text)]" onClick={(event) => event.stopPropagation()}>
-                <div className="mb-4 flex items-center justify-between">
-                  <BrandLockup light />
-                  <button onClick={() => setOpen(false)} aria-label="Close navigation">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <BrandLockup light stacked />
+                  </div>
+                  <button className="shrink-0" onClick={() => setOpen(false)} aria-label="Close navigation">
                     <X className="h-5 w-5" />
                   </button>
                 </div>

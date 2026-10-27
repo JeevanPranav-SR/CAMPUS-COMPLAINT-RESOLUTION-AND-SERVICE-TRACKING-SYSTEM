@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { getLocation } from "@/lib/campus";
 import { categoryLabel, roleValues } from "@/lib/constants";
 import { fail, ok } from "@/lib/http";
@@ -40,7 +41,7 @@ export async function GET() {
     return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);
   }
 
-  await syncOverdueSlaNotifications();
+  after(syncOverdueSlaNotifications);
 
   const where = analyticsScope(user);
   if (!where) return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);

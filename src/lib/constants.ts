@@ -121,6 +121,25 @@ export const STATUS_META: Record<Status, { label: string; tone: "slate" | "blue"
   CLOSED: { label: "Closed", tone: "green" },
 };
 
+export const ACTION_LABELS: Record<Status, string> = {
+  SUBMITTED: "Submit",
+  ACKNOWLEDGED: "Mark under review",
+  ASSIGNED: "Assign",
+  IN_PROGRESS: "Start work",
+  ON_HOLD: "Put on hold",
+  ESCALATED: "Escalate",
+  REJECTED: "Reject",
+  RESOLVED: "Mark resolved",
+  REOPENED: "Reopen",
+  CLOSED: "Close",
+};
+
+/** Statuses in which a manager can (re)assign a technician. */
+export const ASSIGNABLE_STATUSES: Status[] = ["SUBMITTED", "ACKNOWLEDGED", "ASSIGNED", "REOPENED", "ESCALATED"];
+
+/** Transitions that require a written reason from the operator. */
+export const REASON_REQUIRED: Status[] = ["REJECTED", "ESCALATED", "ON_HOLD"];
+
 export const PRIORITY_META: Record<Priority, { label: string; tone: "red" | "amber" | "blue" | "slate" }> = {
   CRITICAL: { label: "Critical", tone: "red" },
   HIGH: { label: "High", tone: "amber" },

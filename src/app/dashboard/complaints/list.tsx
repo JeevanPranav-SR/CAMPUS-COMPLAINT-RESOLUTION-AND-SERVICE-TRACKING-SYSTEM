@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
 import { api } from "@/lib/client";
-import { CATEGORIES, STATUSES, PRIORITIES, categoryLabel } from "@/lib/constants";
+import { CATEGORIES, PRIORITY_META, STATUS_META, STATUSES, PRIORITIES, categoryLabel } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
+import { departmentName, routeComplaint } from "@/lib/routing";
 import { formatDateTime, remainingLabel } from "@/lib/utils";
 import { can } from "@/lib/rbac";
 import type { Ticket } from "@/lib/types";
@@ -57,29 +58,39 @@ export default function ComplaintsList() {
 
   useEffect(() => {
     let active = true;
-    const params = new URLSearchParams({ page: String(page), pageSize: "12" });
-    if (q) params.set("q", q);
-    if (status) params.set("status", status);
-    if (priority) params.set("priority", priority);
-    if (category) params.set("category", category);
-    if (from) params.set("from", from);
-    if (to) params.set("to", to);
-    if (scope) params.set("scope", scope);
-    api<{ complaints: Ticket[]; total: number }>("/api/complaints?" + params.toString())
-      .then((payload) => {
-        if (!active) return;
-        setTickets(payload.complaints);
-        setTotal(payload.total);
-        setError("");
-        setLoading(false);
-      })
-      .catch((err: Error) => {
-        if (!active) return;
-        setError(err.message);
-        setLoading(false);
-      });
+    function load() {
+      const params = new URLSearchParams({ page: String(page), pageSize: "12" });
+      if (q) params.set("q", q);
+      if (status) params.set("status", status);
+      if (priority) params.set("priority", priority);
+      if (category) params.set("category", category);
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      if (scope) params.set("scope", scope);
+      api<{ complaints: Ticket[]; total: number }>("/api/complaints?" + params.toString())
+        .then((payload) => {
+          if (!active) return;
+          setTickets(payload.complaints);
+          setTotal(payload.total);
+          setError("");
+          setLoading(false);
+        })
+        .catch((err: Error) => {
+          if (!active) return;
+          setError(err.message);
+          setLoading(false);
+        });
+    }
+    load();
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       active = false;
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [q, status, priority, category, from, to, scope, page]);
 
@@ -94,7 +105,7 @@ export default function ComplaintsList() {
         : scope === "work"
           ? "Assigned work"
           : scope === "hostel" || scope === "department"
-            ? "Hostel complaints"
+            ? `${me?.department ?? "Department"} complaints`
             : scope === "all"
               ? "All campus complaints"
               : "Complaints";
@@ -125,7 +136,7 @@ export default function ComplaintsList() {
           <option value="">All statuses</option>
           {STATUSES.map((item) => (
             <option key={item} value={item}>
-              {item.replace(/_/g, " ")}
+              {STATUS_META[item].label}
             </option>
           ))}
         </Select>
@@ -133,7 +144,7 @@ export default function ComplaintsList() {
           <option value="">All priorities</option>
           {PRIORITIES.map((item) => (
             <option key={item} value={item}>
-              {item}
+              {PRIORITY_META[item].label}
             </option>
           ))}
         </Select>
@@ -161,10 +172,10 @@ export default function ComplaintsList() {
       ) : (
         <>
           <div className="hidden overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] md:block">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="bg-[var(--bg)] text-xs text-[var(--muted)]">
                 <tr>
-                  {["Ticket", "Title", "Category", "Location", "Priority", "Status", "Assignee", "SLA", "Created"].map((col) => (
+                  {["Ticket", "Title", "Category", "Department", "Location", "Priority", "Status", "Technician", "SLA", "Created"].map((col) => (
                     <th key={col} className="px-4 py-2 font-medium">
                       {col}
                     </th>
@@ -181,6 +192,7 @@ export default function ComplaintsList() {
                     </td>
                     <td className="px-4 py-3">{ticket.title}</td>
                     <td className="px-4 py-3 text-[var(--muted)]">{categoryLabel(ticket.category)}</td>
+                    <td className="px-4 py-3 text-[var(--muted)]">{departmentName(routeComplaint(ticket.category, ticket.locationId))}</td>
                     <td className="px-4 py-3">{getLocation(ticket.locationId)?.shortName}</td>
                     <td className="px-4 py-3">
                       <PriorityBadge priority={ticket.priority} />

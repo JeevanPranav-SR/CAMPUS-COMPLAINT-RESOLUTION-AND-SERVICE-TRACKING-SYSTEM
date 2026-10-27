@@ -182,7 +182,10 @@ export function allowedTransitions(current: Status, user: AccessUser, complaint:
       next.add("ASSIGNED");
       next.add("REJECTED");
     }
-    if (current === "ACKNOWLEDGED") next.add("ASSIGNED");
+    if (current === "ACKNOWLEDGED") {
+      next.add("ASSIGNED");
+      if (complaint.assigneeId) next.add("IN_PROGRESS");
+    }
     if (current === "ASSIGNED" || current === "REOPENED" || current === "ESCALATED") next.add("IN_PROGRESS");
     if (current === "ASSIGNED" || current === "REOPENED") next.add("ASSIGNED");
   }
@@ -196,7 +199,7 @@ export function allowedTransitions(current: Status, user: AccessUser, complaint:
       if (STAFF_QUEUE_STATUSES.includes(current)) next.add("ASSIGNED");
       if (current === "ASSIGNED") next.add("IN_PROGRESS");
       if (current === "ESCALATED") next.add("IN_PROGRESS");
-    } else if (current === "ASSIGNED" || current === "REOPENED" || current === "ESCALATED") {
+    } else if (current === "ASSIGNED" || current === "REOPENED" || current === "ESCALATED" || (current === "ACKNOWLEDGED" && complaint.assigneeId)) {
       next.add("IN_PROGRESS");
     }
     if (current === "IN_PROGRESS") {

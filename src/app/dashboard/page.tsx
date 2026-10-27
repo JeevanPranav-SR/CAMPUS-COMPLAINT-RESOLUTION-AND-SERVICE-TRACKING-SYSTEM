@@ -71,9 +71,9 @@ export default function OverviewPage() {
         const opsScope = operationalScopeParam(user);
         const ops = opsScope !== "mine";
         const [minePayload, opsPayload, statsPayload, notePayload] = await Promise.all([
-          api<{ complaints: Ticket[]; total: number }>("/api/complaints?scope=mine&pageSize=8"),
+          api<{ complaints: Ticket[]; total: number }>("/api/complaints?scope=mine&pageSize=20"),
           ops
-            ? api<{ complaints: Ticket[]; total: number }>(`/api/complaints?scope=${opsScope}&pageSize=8`)
+            ? api<{ complaints: Ticket[]; total: number }>(`/api/complaints?scope=${opsScope}&pageSize=40`)
             : Promise.resolve({ complaints: [] as Ticket[], total: 0 }),
           showStats ? api<StatsPayload>("/api/stats") : Promise.resolve(null),
           api<{ notifications: NotificationItem[] }>("/api/notifications"),
@@ -128,7 +128,14 @@ export default function OverviewPage() {
   if (!me) return null;
 
   const copy = dashboardCopy(me.role);
-  const attention = copy.stats === "own" ? mineTickets : opsTickets;
+  const openWork = (ticket: Ticket) => !["RESOLVED", "CLOSED", "REJECTED"].includes(ticket.status);
+  const attention = (copy.stats === "own" ? mineTickets : opsTickets)
+    .filter(openWork)
+    .sort((a, b) => {
+      const unassigned = Number(Boolean(a.assigneeId)) - Number(Boolean(b.assigneeId));
+      if (unassigned) return unassigned;
+      return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
+    });
   const attentionHref =
     copy.stats === "own"
       ? "/dashboard/complaints?scope=mine"
@@ -176,9 +183,9 @@ export default function OverviewPage() {
       </section>
       <section className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
         <div>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold">{copy.stats === "own" ? "My complaints" : "Needs attention"}</h2>
-            <Link href={attentionHref} className="text-sm text-[var(--accent)]">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-base font-semibold">{copy.stats === "own" ? "My complaints" : "Needs attention"}</h2>
+            <Link href={attentionHref} className="shrink-0 text-sm text-[var(--accent)]">
               View all
             </Link>
           </div>
@@ -193,6 +200,7 @@ export default function OverviewPage() {
                       <th className="px-4 py-2 font-medium">Ticket</th>
                       <th className="px-4 py-2 font-medium">Title</th>
                       <th className="px-4 py-2 font-medium">Location</th>
+                      <th className="px-4 py-2 font-medium">Technician</th>
                       <th className="px-4 py-2 font-medium">Status</th>
                       <th className="px-4 py-2 font-medium">SLA</th>
                     </tr>
@@ -207,6 +215,7 @@ export default function OverviewPage() {
                         </td>
                         <td className="px-4 py-3">{ticket.title}</td>
                         <td className="px-4 py-3 text-[var(--muted)]">{getLocation(ticket.locationId)?.shortName}</td>
+                        <td className="px-4 py-3 text-[var(--muted)]">{ticket.assignee?.name ?? "Unassigned"}</td>
                         <td className="px-4 py-3">
                           <StatusBadge status={ticket.status} />
                         </td>
@@ -221,7 +230,9 @@ export default function OverviewPage() {
                   <Link key={ticket.id} href={`/dashboard/complaints/${ticket.id}`} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                     <p className="font-mono text-xs text-[var(--accent)]">{ticket.ticketNo}</p>
                     <p className="mt-1 font-medium">{ticket.title}</p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{getLocation(ticket.locationId)?.shortName}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {getLocation(ticket.locationId)?.shortName} · {ticket.assignee?.name ?? "Unassigned"}
+                    </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <StatusBadge status={ticket.status} />
                     </div>

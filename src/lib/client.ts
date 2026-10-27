@@ -3,6 +3,7 @@ type ApiFail = { success: false; error: { code: string; message: string } };
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
+    cache: "no-store",
     ...init,
     headers: {
       "Content-Type": "application/json",

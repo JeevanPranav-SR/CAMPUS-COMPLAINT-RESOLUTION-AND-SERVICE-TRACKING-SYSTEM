@@ -20,7 +20,9 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--bg)]">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-6 py-5">
-        <BrandLockup href="/" />
+        <div className="min-w-0">
+          <BrandLockup href="/" />
+        </div>
         <div className="flex shrink-0 gap-3">
           <Link href="/login"><Button variant="secondary">Sign in</Button></Link>
           <Link href="/register"><Button>Register</Button></Link>

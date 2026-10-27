@@ -9,7 +9,7 @@ import { Select, Textarea } from "@/components/ui/field";
 import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/client";
-import { CATEGORIES, LIFECYCLE, normalizeRole, ROLE_META, type Status } from "@/lib/constants";
+import { ACTION_LABELS, ASSIGNABLE_STATUSES, CATEGORIES, LIFECYCLE, normalizeRole, REASON_REQUIRED, ROLE_META, STATUS_META, type Status } from "@/lib/constants";
 import { departmentName, routeComplaint } from "@/lib/routing";
 import { getLocation } from "@/lib/campus";
 import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rbac";
@@ -72,25 +72,33 @@ export default function TicketDetailPage() {
     };
   }, [params.id]);
 
-  async function update(status?: Status) {
+  async function update(status?: Status, assignTo?: string) {
     if (!ticket) return;
+    if (status && REASON_REQUIRED.includes(status) && note.trim().length < 4) {
+      toast(`Write a short reason in the note box to ${ACTION_LABELS[status].toLowerCase()} this complaint.`, "error");
+      return;
+    }
     setBusy(true);
     try {
       const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          status,
-          assigneeId: assigneeId || undefined,
-          note,
-          reason,
+          ...(status ? { status } : {}),
+          ...(assignTo ? { assigneeId: assignTo } : {}),
+          note: status === "REOPENED" ? reason : note,
           rating: status === "CLOSED" ? rating : undefined,
           ratingComment: status === "CLOSED" ? ratingComment : undefined,
         }),
       });
       setTicket(payload.complaint);
+      setAssigneeId(payload.complaint.assigneeId ?? "");
       setNote("");
       setReason("");
-      toast("Status updated.");
+      toast(
+        assignTo
+          ? `Assigned to ${payload.complaint.assignee?.name ?? "technician"}.`
+          : `Status changed to ${STATUS_META[payload.complaint.status as Status]?.label.toLowerCase() ?? payload.complaint.status}.`,
+      );
     } catch (err) {
       toast(err instanceof Error ? err.message : "Unable to update", "error");
     } finally {
@@ -144,6 +152,8 @@ export default function TicketDetailPage() {
   const sla = slaState(ticket.dueAt, ticket.status, ticket.resolvedAt);
   const ops = canUpdateWork(me, ticket) || canAssign(me);
   const owner = isOwner(me, ticket);
+  const assignable = ASSIGNABLE_STATUSES.includes(ticket.status as Status);
+  const opsActions = allowed.filter((status) => !["ASSIGNED", "CLOSED", "REOPENED"].includes(status));
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -197,7 +207,7 @@ export default function TicketDetailPage() {
               <li key={event.id} className="flex gap-3 border-l-2 border-slate-200 pl-3">
                 <div>
                   <p className="text-sm">
-                    <span className="font-medium">{event.status.replace(/_/g, " ")}</span>
+                    <span className="font-medium">{STATUS_META[event.status as Status]?.label ?? event.status}</span>
                     {event.actor?.name ? ` · ${event.actor.name}` : ""}
                     {event.actor?.role ? ` (${ROLE_META[normalizeRole(event.actor.role)].label})` : ""}
                   </p>
@@ -210,7 +220,7 @@ export default function TicketDetailPage() {
           <div className="mt-4 flex flex-wrap gap-2">
             {LIFECYCLE.map((step) => (
               <span key={step} className={`rounded-full px-2 py-0.5 text-[11px] ${ticket.status === step || (ticket.status === "REOPENED" && step === "ASSIGNED") ? "bg-[var(--primary)] text-white" : "bg-slate-100 text-slate-600"}`}>
-                {step.replace(/_/g, " ")}
+                {STATUS_META[step].label}
               </span>
             ))}
           </div>
@@ -246,34 +256,43 @@ export default function TicketDetailPage() {
         {ops ? (
           <Card className="space-y-3">
             <h2 className="text-sm font-semibold">Operations</h2>
-            {canAssign(me) ? (
-              <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
-                <option value="">Select technician</option>
-                {staff.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.name} · {person.department}
-                  </option>
-                ))}
-              </Select>
+            {canAssign(me) && assignable ? (
+              <div className="flex gap-2">
+                <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} aria-label="Technician">
+                  <option value="">Select technician</option>
+                  {staff.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name} · {person.department}
+                    </option>
+                  ))}
+                </Select>
+                <Button size="sm" className="shrink-0" disabled={busy || !assigneeId || assigneeId === ticket.assigneeId} onClick={() => update(undefined, assigneeId)}>
+                  {ticket.assigneeId ? "Reassign" : "Assign"}
+                </Button>
+              </div>
             ) : null}
-            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Progress or resolution note" />
+            <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Progress or resolution note (required to reject, escalate or put on hold)" />
             {me.role === "TECHNICIAN" && !ticket.assigneeId ? (
               <Button size="sm" disabled={busy} onClick={takeTicket}>
                 Take ticket
               </Button>
             ) : null}
             <div className="flex flex-wrap gap-2">
-              {canAssign(me) ? (
-                <Button size="sm" disabled={busy || !assigneeId} onClick={() => update("ASSIGNED")}>
-                  Assign technician
-                </Button>
-              ) : null}
-              {allowed.filter((status) => status !== "ASSIGNED").map((status) => (
-                <Button key={status} size="sm" variant={status === "RESOLVED" ? "primary" : "secondary"} disabled={busy} onClick={() => update(status)}>
-                  {status === "IN_PROGRESS" ? "Start work" : status === "RESOLVED" ? "Mark resolved" : status.replace(/_/g, " ")}
+              {opsActions.map((status) => (
+                <Button
+                  key={status}
+                  size="sm"
+                  variant={status === "RESOLVED" ? "primary" : status === "REJECTED" ? "danger" : "secondary"}
+                  disabled={busy}
+                  onClick={() => update(status)}
+                >
+                  {ticket.status === "ON_HOLD" && status === "IN_PROGRESS" ? "Resume work" : ACTION_LABELS[status]}
                 </Button>
               ))}
             </div>
+            {opsActions.length === 0 && !(canAssign(me) && assignable) ? (
+              <p className="text-xs text-[var(--muted)]">No operational actions are available at this stage.</p>
+            ) : null}
           </Card>
         ) : null}
         {owner && ticket.status === "RESOLVED" ? (

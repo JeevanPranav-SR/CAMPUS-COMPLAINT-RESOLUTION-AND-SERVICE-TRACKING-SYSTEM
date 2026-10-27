@@ -26,26 +26,24 @@ export async function notify(input: {
   });
   if (!user?.active) return;
 
-  const delivered: string[] = [];
-  if (input.external) {
-    const [email, sms] = await Promise.all([
-      user.notifyEmail ? sendEmail(user.email, input.title, input.body, ticketLink(input.complaintId)) : "skipped",
-      user.notifySms && user.phone ? sendSms(user.phone, `BIT NEXUS: ${input.body}`) : "skipped",
-    ]);
-    if (email === "sent") delivered.push("email");
-    if (sms === "sent") delivered.push("sms");
+  if (user.notifyInApp) {
+    await prisma.notification.create({
+      data: {
+        userId: input.userId,
+        complaintId: input.complaintId,
+        title: input.title,
+        body: input.body,
+        channels: "in-app",
+      },
+    });
   }
 
-  if (!user.notifyInApp && delivered.length === 0) return;
-  await prisma.notification.create({
-    data: {
-      userId: input.userId,
-      complaintId: input.complaintId,
-      title: input.title,
-      body: input.body,
-      channels: ["in-app", ...delivered].join(","),
-    },
-  });
+  if (!input.external) return;
+  const link = ticketLink(input.complaintId);
+  void Promise.all([
+    user.notifyEmail ? sendEmail(user.email, input.title, input.body, link) : Promise.resolve("skipped"),
+    user.notifySms && user.phone ? sendSms(user.phone, `BIT NEXUS: ${input.body}`) : Promise.resolve("skipped"),
+  ]).catch(() => undefined);
 }
 
 export async function syncOverdueSlaNotifications() {
