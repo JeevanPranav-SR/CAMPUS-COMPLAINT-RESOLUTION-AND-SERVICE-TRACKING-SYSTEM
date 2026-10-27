@@ -12,7 +12,7 @@ export async function GET() {
 
   const staff = await prisma.user.findMany({
     where: { active: true, role: { in: roleValues("TECHNICIAN") } },
-    select: { id: true, name: true, department: true, role: true },
+    select: { id: true, name: true, department: true, role: true, specialty: true, experienceYears: true },
     orderBy: { name: "asc" },
   });
   const department = opsDepartmentOf(user.department);

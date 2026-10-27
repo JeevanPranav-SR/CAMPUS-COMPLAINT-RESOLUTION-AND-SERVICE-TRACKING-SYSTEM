@@ -20,6 +20,8 @@ export async function PATCH(request: Request, { params }: Params) {
     hostel?: string | null;
     active?: boolean;
     name?: string;
+    specialty?: string | null;
+    experienceYears?: number;
     password?: string;
   }>(request);
   if (!parsed.ok) return parsed.response;
@@ -45,6 +47,8 @@ export async function PATCH(request: Request, { params }: Params) {
       hostel: body.hostel === undefined ? undefined : body.hostel,
       active: typeof body.active === "boolean" ? body.active : undefined,
       name: body.name?.trim() || undefined,
+      specialty: body.specialty === undefined ? undefined : body.specialty,
+      experienceYears: typeof body.experienceYears === "number" ? Math.max(0, Math.min(40, Math.round(body.experienceYears))) : undefined,
       passwordHash: body.password && body.password.length >= 8 ? await hashPassword(body.password) : undefined,
     },
     select: {

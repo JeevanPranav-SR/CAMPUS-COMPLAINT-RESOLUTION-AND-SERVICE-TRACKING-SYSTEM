@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { ticketInclude } from "@/lib/queries";
 import { getSession } from "@/lib/session";
 import { ACTION_LABELS, ASSIGNABLE_STATUSES, normalizeRole, REASON_REQUIRED, roleValues, STATUSES, slaHours, type Priority, type Status } from "@/lib/constants";
+import { dispatchNote, rankTechnicians } from "@/lib/dispatch";
 import { departmentName, opsDepartmentOf, routeComplaint } from "@/lib/routing";
 
 type Params = { params: Promise<{ id: string }> };
@@ -23,7 +24,7 @@ type Params = { params: Promise<{ id: string }> };
 async function assignableTechnicians(user: AccessUser) {
   const technicians = await prisma.user.findMany({
     where: { active: true, role: { in: roleValues("TECHNICIAN") } },
-    select: { id: true, name: true, department: true, role: true },
+    select: { id: true, name: true, department: true, role: true, specialty: true, experienceYears: true },
     orderBy: { name: "asc" },
   });
   const normalized = technicians.map((item) => ({ ...item, role: normalizeRole(item.role) }));
@@ -58,6 +59,7 @@ export async function PATCH(request: Request, { params }: Params) {
   const parsed = await readJson<{
     status?: Status;
     assigneeId?: string | null;
+    autoAssign?: boolean;
     note?: string;
     rating?: number;
     ratingComment?: string;
@@ -83,8 +85,21 @@ export async function PATCH(request: Request, { params }: Params) {
   let assigneeId = existing.assigneeId;
   const note = body.note?.trim() || body.reason?.trim() || "";
   const override = body.override === true && can(user, "complaint:view_all") && note.length >= 8;
+  let autoNote = "";
 
-  if (body.assigneeId !== undefined) {
+  if (body.autoAssign) {
+    if (!canAssign(user)) return fail("FORBIDDEN", "You cannot assign technicians.", 403);
+    const dispatch = await rankTechnicians({
+      category: existing.category,
+      priority: existing.priority,
+      locationId: existing.locationId,
+      description: `${existing.title} ${existing.description}`,
+    });
+    if (!dispatch.pick) return fail("UNAVAILABLE", "No matching technician is available in this department.", 409);
+    assigneeId = dispatch.pick.id;
+    autoNote = dispatchNote(dispatch.pick, dispatch.difficulty.label, departmentName(dispatch.department));
+    if (ASSIGNABLE_STATUSES.includes(existing.status as Status)) nextStatus = "ASSIGNED";
+  } else if (body.assigneeId !== undefined) {
     const selfAssign = technician && body.assigneeId === user.id;
     if (!canAssign(user) && !selfAssign) return fail("FORBIDDEN", "You cannot assign technicians.", 403);
     if (body.assigneeId && !selfAssign) {
@@ -183,6 +198,7 @@ export async function PATCH(request: Request, { params }: Params) {
           action,
           note:
             note ||
+            autoNote ||
             (nextStatus === "ASSIGNED" && assigneeId
               ? "Assigned to a maintenance technician."
               : reopened

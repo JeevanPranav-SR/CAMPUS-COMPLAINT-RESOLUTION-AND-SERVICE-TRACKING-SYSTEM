@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { upgrade } from "./upgrade";
+import { TECHNICIAN_ROSTER } from "./technicians";
 
 const prisma = new PrismaClient();
 const ago = (h: number) => new Date(Date.now() - h * 3600000);
@@ -24,15 +25,27 @@ async function main() {
   const admin = await prisma.user.create({
     data: { name: "Kavitha R", email: "admin@bitsathy.ac.in", passwordHash: password.admin, role: "SUPER_ADMIN", department: "Administration", phone: "04295-226000" },
   });
-  const ramesh = await prisma.user.create({
-    data: { name: "Ramesh M", email: "ramesh.m@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "Electrical", phone: "99429 21201" },
-  });
-  const arun = await prisma.user.create({
-    data: { name: "Arun P", email: "arun.p@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "Facilities / Civil", phone: "99429 21202" },
-  });
-  const nisha = await prisma.user.create({
-    data: { name: "Nisha V", email: "nisha.v@bitsathy.ac.in", passwordHash: password.staff, role: "TECHNICIAN", department: "IT Infrastructure", phone: "99429 21203" },
-  });
+  const technicians = await Promise.all(
+    TECHNICIAN_ROSTER.map((person) =>
+      prisma.user.create({
+        data: {
+          name: person.name,
+          email: person.email,
+          passwordHash: password.staff,
+          role: "TECHNICIAN",
+          department: person.department,
+          phone: person.phone,
+          specialty: person.specialty,
+          experienceYears: person.experienceYears,
+        },
+      }),
+    ),
+  );
+  const byEmail = Object.fromEntries(technicians.map((person) => [person.email, person]));
+  const ramesh = byEmail["ramesh.m@bitsathy.ac.in"];
+  const arun = byEmail["arun.p@bitsathy.ac.in"];
+  const nisha = byEmail["nisha.v@bitsathy.ac.in"];
+  if (!ramesh || !arun || !nisha) throw new Error("Technician roster is missing core accounts.");
   const warden = await prisma.user.create({
     data: { name: "Lakshmi N", email: "lakshmi.w@bitsathy.ac.in", passwordHash: password.warden, role: "DEPARTMENT_HEAD", department: "Hostel Maintenance", phone: "99429 21210" },
   });

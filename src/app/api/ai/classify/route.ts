@@ -1,10 +1,7 @@
 import { fail, ok, readJson } from "@/lib/http";
-import { allocationExplanation, classifyComplaint, staffMatchesDepartment, suggestPriority } from "@/lib/classify";
-import { roleValues } from "@/lib/constants";
-import { departmentName, routeComplaint } from "@/lib/routing";
-import { prisma } from "@/lib/prisma";
+import { classifyComplaint, suggestPriority } from "@/lib/classify";
+import { classifyDispatchExplanation, rankTechnicians } from "@/lib/dispatch";
 import { getSession } from "@/lib/session";
-import { canAssign } from "@/lib/rbac";
 
 export async function POST(request: Request) {
   const user = await getSession();
@@ -17,33 +14,13 @@ export async function POST(request: Request) {
 
   const prediction = classifyComplaint(`${text} ${parsed.value.location ?? ""}`);
   const priority = suggestPriority(text);
-  const department = routeComplaint(prediction.category, parsed.value.location_id ?? "");
-
-  const staff = await prisma.user.findMany({
-    where: { active: true, role: { in: roleValues("TECHNICIAN") } },
-    select: {
-      id: true,
-      name: true,
-      department: true,
-      assigned: {
-        where: { status: { notIn: ["RESOLVED", "CLOSED", "REJECTED"] } },
-        select: { id: true },
-      },
-    },
+  const dispatch = await rankTechnicians({
+    category: prediction.category,
+    priority,
+    locationId: parsed.value.location_id ?? "",
+    description: `${text} ${parsed.value.location ?? ""}`,
   });
-
-  const eligible = staff
-    .filter((person) => staffMatchesDepartment(person.department, department))
-    .map((person) => ({
-      id: person.id,
-      name: person.name,
-      department: person.department,
-      pending: person.assigned.length,
-    }))
-    .sort((a, b) => a.pending - b.pending || a.name.localeCompare(b.name));
-
-  const worker = eligible[0] ?? null;
-  const showWorker = Boolean(worker && canAssign(user));
+  const pick = dispatch.pick;
 
   return ok({
     complaint_text: text,
@@ -51,19 +28,21 @@ export async function POST(request: Request) {
     predicted_category: prediction.label,
     category: prediction.category,
     unit: prediction.unit,
-    department,
-    department_name: departmentName(department),
+    department: dispatch.department,
+    department_name: dispatch.departmentName,
     priority,
     confidence: prediction.confidence,
-    assigned_worker_id: showWorker ? worker?.id ?? null : null,
-    assigned_worker_name: showWorker ? worker?.name ?? null : null,
-    pending: showWorker ? worker?.pending ?? null : null,
-    explanation: allocationExplanation({
+    assigned_worker_id: pick?.id ?? null,
+    assigned_worker_name: pick?.name ?? null,
+    pending: pick?.openCount ?? null,
+    experience_years: pick?.experienceYears ?? null,
+    specialty: pick?.specialty ?? null,
+    difficulty: dispatch.difficulty.label,
+    explanation: classifyDispatchExplanation({
       categoryLabel: prediction.label,
-      unit: prediction.unit,
-      departmentName: departmentName(department),
-      workerName: showWorker ? worker?.name : null,
-      pending: worker?.pending,
+      departmentName: dispatch.departmentName,
+      pick,
+      difficulty: dispatch.difficulty.label,
     }),
   });
 }

@@ -29,12 +29,12 @@ export const ticketListSelect = {
   createdAt: true,
   updatedAt: true,
   reporter: { select: { id: true, name: true, role: true, department: true, hostel: true } },
-  assignee: { select: { id: true, name: true, department: true, role: true } },
+  assignee: { select: { id: true, name: true, department: true, role: true, specialty: true, experienceYears: true } },
 } satisfies Prisma.ComplaintSelect;
 
 export const ticketInclude = {
   reporter: { select: { id: true, name: true, role: true, department: true, hostel: true } },
-  assignee: { select: { id: true, name: true, department: true, role: true } },
+  assignee: { select: { id: true, name: true, department: true, role: true, specialty: true, experienceYears: true } },
   events: { orderBy: { createdAt: "asc" as const }, include: { actor: { select: { name: true, role: true } } } },
   comments: { orderBy: { createdAt: "asc" as const }, include: { actor: { select: { id: true, name: true, role: true } } } },
 };

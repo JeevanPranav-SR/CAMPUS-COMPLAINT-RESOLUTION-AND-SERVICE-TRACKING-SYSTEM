@@ -12,6 +12,7 @@ import { api } from "@/lib/client";
 import { CLASSIFY_EXAMPLES } from "@/lib/classify";
 import { CATEGORIES, PRIORITIES, slaHours, type Priority } from "@/lib/constants";
 import { departmentName, routeComplaint } from "@/lib/routing";
+import { specialtyLabel } from "@/lib/specialties";
 import type { Ticket } from "@/lib/types";
 
 type AiSuggestion = {
@@ -176,6 +177,18 @@ export default function NewComplaintPage() {
         <p className="mt-4 text-sm">
           Automatically routed to <span className="font-medium">{created.departmentName ?? routedTo}</span>. SLA window: {created.slaHours} hours.
         </p>
+        {created.assignee?.name ? (
+          <p className="mt-2 text-sm">
+            AI assigned <span className="font-medium">{created.assignee.name}</span>
+            {created.assignee.specialty ? ` (${specialtyLabel(created.assignee.specialty).toLowerCase()})` : ""}
+            {typeof created.assignee.experienceYears === "number" && created.assignee.experienceYears > 0
+              ? ` with ${created.assignee.experienceYears} years of experience`
+              : ""}
+            .
+          </p>
+        ) : (
+          <p className="mt-2 text-sm text-[var(--muted)]">A department head will assign a technician shortly.</p>
+        )}
         <p className="mt-1 text-xs text-[var(--muted)]">Keep this reference ID. You will be notified on every status change.</p>
         <div className="mt-6 flex justify-center gap-3">
           <Link href={`/dashboard/complaints/${created.id}`}>
@@ -193,7 +206,7 @@ export default function NewComplaintPage() {
     <div>
       <PageHeader
         title="Report an issue"
-        description="Describe the problem in your own words. AI suggests the category, the complaint is routed to the right department automatically, and you are warned if it was already reported nearby."
+        description="Describe the problem in your own words. AI classifies it, routes it to the right department, and auto-assigns a technician by trade, experience and current workload."
       />
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-4">
@@ -238,7 +251,7 @@ export default function NewComplaintPage() {
                 <p className="font-medium">AI suggested {suggestion.predicted_category}</p>
                 <p className="mt-1 text-[var(--muted)]">{suggestion.explanation}</p>
                 {suggestion.assigned_worker_name ? (
-                  <p className="mt-1 text-xs">Suggested technician: {suggestion.assigned_worker_name}</p>
+                  <p className="mt-1 text-xs">AI will auto-assign: {suggestion.assigned_worker_name}</p>
                 ) : null}
               </div>
             ) : null}

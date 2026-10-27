@@ -4,6 +4,7 @@ import { fail, isAllowedImage, ok, readJson } from "@/lib/http";
 import { notify, syncOverdueSlaNotifications } from "@/lib/notify";
 import { writeAudit } from "@/lib/audit";
 import { can, inUserDepartment, isForbiddenScope } from "@/lib/rbac";
+import { dispatchNote, rankTechnicians } from "@/lib/dispatch";
 import { departmentName, routeComplaint } from "@/lib/routing";
 import { prisma } from "@/lib/prisma";
 import { complaintScope, ticketInclude, ticketListSelect } from "@/lib/queries";
@@ -139,6 +140,14 @@ export async function POST(request: Request) {
     : nearest.id;
   const hours = slaHours(body.category, body.priority);
   const department = routeComplaint(body.category, locationId);
+  const dispatch = await rankTechnicians({
+    category: body.category,
+    priority: body.priority,
+    locationId,
+    description: `${title} ${description}`,
+  });
+  const pick = dispatch.pick;
+  const now = new Date();
 
   let complaint = null;
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -151,22 +160,41 @@ export async function POST(request: Request) {
           description,
           category: body.category,
           priority: body.priority,
-          status: "SUBMITTED",
+          status: pick ? "ASSIGNED" : "SUBMITTED",
           locationId,
           lat,
           lng,
           landmark: body.landmark?.trim() || nearest.shortName,
           evidence: body.evidence || null,
           reporterId: user.id,
+          assigneeId: pick?.id ?? null,
           slaHours: hours,
-          dueAt: new Date(Date.now() + hours * 3600000),
+          dueAt: new Date(now.getTime() + hours * 3600000),
+          assignedAt: pick ? now : null,
           events: {
-            create: {
-              status: "SUBMITTED",
-              action: "STATUS",
-              note: `Filed from ${nearest.name}${body.landmark ? ` · ${body.landmark}` : ""}. Auto-routed to ${departmentName(department)}.`,
-              actorId: user.id,
-            },
+            create: pick
+              ? [
+                  {
+                    status: "SUBMITTED",
+                    action: "STATUS",
+                    note: `Filed from ${nearest.name}${body.landmark ? ` · ${body.landmark}` : ""}. Auto-routed to ${departmentName(department)}.`,
+                    actorId: user.id,
+                    createdAt: now,
+                  },
+                  {
+                    status: "ASSIGNED",
+                    action: "ASSIGN",
+                    note: dispatchNote(pick, dispatch.difficulty.label, departmentName(department)),
+                    actorId: user.id,
+                    createdAt: new Date(now.getTime() + 1000),
+                  },
+                ]
+              : {
+                  status: "SUBMITTED",
+                  action: "STATUS",
+                  note: `Filed from ${nearest.name}${body.landmark ? ` · ${body.landmark}` : ""}. Auto-routed to ${departmentName(department)}.`,
+                  actorId: user.id,
+                },
           },
         },
         include: ticketInclude,
@@ -211,9 +239,21 @@ export async function POST(request: Request) {
       userId: user.id,
       complaintId: created.id,
       title: `${created.ticketNo} received`,
-      body: `Your complaint was routed to ${departmentName(department)}. Track it with reference ${created.ticketNo}.`,
+      body: pick
+        ? `Your complaint was routed to ${departmentName(department)} and auto-assigned to ${pick.name}. Track it with reference ${created.ticketNo}.`
+        : `Your complaint was routed to ${departmentName(department)}. Track it with reference ${created.ticketNo}.`,
       external: true,
     });
+    if (pick) {
+      await notify({
+        userId: pick.id,
+        complaintId: created.id,
+        actorId: user.id,
+        title: "New ticket assigned to you",
+        body: `${created.ticketNo} "${created.title}" was auto-assigned to you.`,
+        external: true,
+      });
+    }
     await writeAudit({
       actorId: user.id,
       action: "COMPLAINT_CREATE",

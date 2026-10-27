@@ -15,6 +15,7 @@ import { ClientGuard, useUser } from "@/components/auth/guards";
 import { allowedTransitions, can, canAssign, operationalScopeParam } from "@/lib/rbac";
 import { ACTION_LABELS, ASSIGNABLE_STATUSES, REASON_REQUIRED, STATUS_META, type Status } from "@/lib/constants";
 import { OPS_DEPARTMENTS, departmentName, opsDepartmentOf, routeComplaint, type OpsDepartmentId } from "@/lib/routing";
+import { staffOptionLabel } from "@/lib/specialties";
 
 const COLUMNS: { id: string; label: string; match: Status[] }[] = [
   { id: "SUBMITTED", label: STATUS_META.SUBMITTED.label, match: ["SUBMITTED"] },
@@ -26,7 +27,7 @@ const COLUMNS: { id: string; label: string; match: Status[] }[] = [
   { id: "CLOSED", label: "Closed / rejected", match: ["CLOSED", "REJECTED"] },
 ];
 
-type Staff = { id: string; name: string; department: string | null; role: string };
+type Staff = { id: string; name: string; department: string | null; role: string; specialty?: string | null; experienceYears?: number };
 
 function actionLabel(current: Status, next: Status) {
   if (current === "ON_HOLD" && next === "IN_PROGRESS") return "Resume work";
@@ -68,7 +69,7 @@ export default function OperationsPage() {
     };
   }, [me, reload]);
 
-  async function act(ticket: Ticket, change: { status?: Status; assigneeId?: string }) {
+  async function act(ticket: Ticket, change: { status?: Status; assigneeId?: string; autoAssign?: boolean }) {
     let note: string | undefined;
     if (change.status && REASON_REQUIRED.includes(change.status)) {
       const answer = window.prompt(`Reason to ${ACTION_LABELS[change.status].toLowerCase()} ${ticket.ticketNo}:`);
@@ -82,20 +83,22 @@ export default function OperationsPage() {
     setBusyId(ticket.id);
     const nextStatus =
       change.status ??
-      (change.assigneeId && ASSIGNABLE_STATUSES.includes(ticket.status as Status) ? "ASSIGNED" : ticket.status);
-    setTickets((current) =>
-      current.map((item) =>
-        item.id === ticket.id
-          ? {
-              ...item,
-              ...change,
-              status: nextStatus,
-              assigneeId: change.assigneeId ?? item.assigneeId,
-              assignee: change.assigneeId ? staff.find((person) => person.id === change.assigneeId) ?? item.assignee : item.assignee,
-            }
-          : item,
-      ),
-    );
+      ((change.assigneeId || change.autoAssign) && ASSIGNABLE_STATUSES.includes(ticket.status as Status) ? "ASSIGNED" : ticket.status);
+    if (!change.autoAssign) {
+      setTickets((current) =>
+        current.map((item) =>
+          item.id === ticket.id
+            ? {
+                ...item,
+                ...change,
+                status: nextStatus,
+                assigneeId: change.assigneeId ?? item.assigneeId,
+                assignee: change.assigneeId ? staff.find((person) => person.id === change.assigneeId) ?? item.assignee : item.assignee,
+              }
+            : item,
+        ),
+      );
+    }
     try {
       const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}`, {
         method: "PATCH",
@@ -109,7 +112,7 @@ export default function OperationsPage() {
         return next;
       });
       toast(
-        change.assigneeId
+        change.autoAssign || change.assigneeId
           ? `${updated.ticketNo} assigned to ${updated.assignee?.name ?? "technician"}.`
           : `${updated.ticketNo} is now ${STATUS_META[updated.status as Status]?.label.toLowerCase() ?? updated.status}.`,
       );
@@ -213,7 +216,7 @@ export default function OperationsPage() {
                               <option value="">Select technician</option>
                               {choices.map((person) => (
                                 <option key={person.id} value={person.id}>
-                                  {person.name}
+                                  {staffOptionLabel(person)}
                                   {team.length ? "" : ` · ${person.department ?? ""}`}
                                 </option>
                               ))}
@@ -226,6 +229,11 @@ export default function OperationsPage() {
                             >
                               {busy ? "Saving…" : ticket.assigneeId ? "Reassign" : "Assign"}
                             </Button>
+                            {!ticket.assigneeId ? (
+                              <Button size="sm" variant="secondary" className="w-full" disabled={busy} onClick={() => act(ticket, { autoAssign: true })}>
+                                {busy ? "Saving…" : "AI auto-assign"}
+                              </Button>
+                            ) : null}
                           </div>
                         ) : null}
                         {me?.role === "TECHNICIAN" && !ticket.assigneeId ? (

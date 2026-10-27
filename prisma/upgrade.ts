@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { TECHNICIAN_ROSTER } from "./technicians";
 
 /**
  * Idempotent, non-destructive data upgrade. Safe to run repeatedly against
@@ -49,10 +50,31 @@ export async function upgrade(prisma: PrismaClient) {
     { name: "Suresh Kumar", email: "head.it@bitsathy.ac.in", role: "DEPARTMENT_HEAD", department: "IT Infrastructure", phone: "99429 21220", passwordHash: headPassword },
     { name: "Prakash V", email: "head.electrical@bitsathy.ac.in", role: "DEPARTMENT_HEAD", department: "Electrical", phone: "99429 21221", passwordHash: headPassword },
     { name: "Revathi S", email: "head.facilities@bitsathy.ac.in", role: "DEPARTMENT_HEAD", department: "Facilities / Civil", phone: "99429 21222", passwordHash: headPassword },
-    { name: "Murugan S", email: "murugan.s@bitsathy.ac.in", role: "TECHNICIAN", department: "Hostel Maintenance", phone: "99429 21204", passwordHash: staffPassword },
   ];
   for (const account of accounts) {
     await prisma.user.upsert({ where: { email: account.email }, update: {}, create: account });
+  }
+  for (const person of TECHNICIAN_ROSTER) {
+    await prisma.user.upsert({
+      where: { email: person.email },
+      update: {
+        role: "TECHNICIAN",
+        department: person.department,
+        specialty: person.specialty,
+        experienceYears: person.experienceYears,
+        active: true,
+      },
+      create: {
+        name: person.name,
+        email: person.email,
+        passwordHash: staffPassword,
+        role: "TECHNICIAN",
+        department: person.department,
+        phone: person.phone,
+        specialty: person.specialty,
+        experienceYears: person.experienceYears,
+      },
+    });
   }
 
   const users = await prisma.user.findMany({ select: { id: true, email: true } });

@@ -41,7 +41,7 @@ export type Ticket = {
   createdAt: string;
   updatedAt: string;
   reporter?: { id: string; name: string; role: string; department: string | null; hostel?: string | null };
-  assignee?: { id: string; name: string; department: string | null; role?: string } | null;
+  assignee?: { id: string; name: string; department: string | null; role?: string; specialty?: string | null; experienceYears?: number } | null;
   events?: TicketEvent[];
   comments?: TicketComment[];
 };

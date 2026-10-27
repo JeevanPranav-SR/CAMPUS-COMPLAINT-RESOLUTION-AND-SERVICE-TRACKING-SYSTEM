@@ -16,8 +16,9 @@ import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rba
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 import { useUser } from "@/components/auth/guards";
+import { staffOptionLabel } from "@/lib/specialties";
 
-type Staff = { id: string; name: string; department: string | null; role: string };
+type Staff = { id: string; name: string; department: string | null; role: string; specialty?: string | null; experienceYears?: number };
 
 export default function TicketDetailPage() {
   const params = useParams<{ id: string }>();
@@ -184,7 +185,11 @@ export default function TicketDetailPage() {
             </div>
             <div>
               <dt className="text-[var(--muted)]">Assignee</dt>
-              <dd>{ticket.assignee?.name ?? "Unassigned"}</dd>
+              <dd>
+                {ticket.assignee
+                  ? `${staffOptionLabel(ticket.assignee)}${ticket.assignee.department ? ` · ${ticket.assignee.department}` : ""}`
+                  : "Unassigned"}
+              </dd>
             </div>
           </dl>
           {ticket.evidence ? (
@@ -249,18 +254,45 @@ export default function TicketDetailPage() {
           <Card className="space-y-3">
             <h2 className="text-sm font-semibold">Operations</h2>
             {canAssign(me) && assignable ? (
-              <div className="flex gap-2">
-                <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} aria-label="Technician">
-                  <option value="">Select technician</option>
-                  {staff.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name} · {person.department}
-                    </option>
-                  ))}
-                </Select>
-                <Button size="sm" className="shrink-0" disabled={busy || !assigneeId || assigneeId === ticket.assigneeId} onClick={() => update(undefined, assigneeId)}>
-                  {ticket.assigneeId ? "Reassign" : "Assign"}
-                </Button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} aria-label="Technician">
+                    <option value="">Select technician</option>
+                    {staff.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {staffOptionLabel(person)} · {person.department}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button size="sm" className="shrink-0" disabled={busy || !assigneeId || assigneeId === ticket.assigneeId} onClick={() => update(undefined, assigneeId)}>
+                    {ticket.assigneeId ? "Reassign" : "Assign"}
+                  </Button>
+                </div>
+                {!ticket.assigneeId ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        const payload = await api<{ complaint: Ticket }>(`/api/complaints/${ticket.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ autoAssign: true }),
+                        });
+                        setTicket(payload.complaint);
+                        setAssigneeId(payload.complaint.assigneeId ?? "");
+                        toast(`AI assigned ${payload.complaint.assignee?.name ?? "a technician"}.`);
+                      } catch (err) {
+                        toast(err instanceof Error ? err.message : "Unable to auto-assign", "error");
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    AI auto-assign
+                  </Button>
+                ) : null}
               </div>
             ) : null}
             <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Progress or resolution note (required to reject, escalate or put on hold)" />

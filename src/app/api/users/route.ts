@@ -18,6 +18,8 @@ export async function GET() {
       department: true,
       hostel: true,
       phone: true,
+      specialty: true,
+      experienceYears: true,
       active: true,
       createdAt: true,
     },

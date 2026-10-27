@@ -18,6 +18,8 @@ model User {
   hostel       String?
   registerNo   String?
   phone        String?
+  specialty    String?
+  experienceYears Int    @default(0)
   notifyInApp  Boolean  @default(true)
   notifyEmail  Boolean  @default(true)
   notifySms    Boolean  @default(false)
