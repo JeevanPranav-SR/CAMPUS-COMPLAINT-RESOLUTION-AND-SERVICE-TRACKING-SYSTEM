@@ -83,7 +83,7 @@ export default function LoginForm() {
             </div>
           </div>
           <p className="text-sm text-[var(--muted)]">
-            Student? <Link className="text-[var(--accent)]" href="/register">Create an account</Link>
+            Student or faculty? <Link className="text-[var(--accent)]" href="/register">Create an account</Link>
           </p>
         </form>
       </div>
