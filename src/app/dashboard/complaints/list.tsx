@@ -13,8 +13,8 @@ import { getLocation } from "@/lib/campus";
 import { departmentName, routeComplaint } from "@/lib/routing";
 import { formatDateTime, remainingLabel } from "@/lib/utils";
 import { can } from "@/lib/rbac";
+import { useUser } from "@/components/auth/guards";
 import type { Ticket } from "@/lib/types";
-import type { SessionUser } from "@/lib/session";
 
 export default function ComplaintsList() {
   const router = useRouter();
@@ -33,7 +33,7 @@ export default function ComplaintsList() {
     setPrevQ(q);
     setDraftQ(q);
   }
-  const [me, setMe] = useState<SessionUser | null>(null);
+  const me = useUser();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
@@ -49,12 +49,6 @@ export default function ComplaintsList() {
     const query = params.toString();
     router.replace(query ? `/dashboard/complaints?${query}` : "/dashboard/complaints");
   }
-
-  useEffect(() => {
-    api<{ user: SessionUser }>("/api/auth/me")
-      .then((payload) => setMe(payload.user))
-      .catch(() => setMe(null));
-  }, []);
 
   useEffect(() => {
     let active = true;

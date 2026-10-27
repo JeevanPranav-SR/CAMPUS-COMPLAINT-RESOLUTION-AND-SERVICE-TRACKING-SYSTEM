@@ -11,7 +11,12 @@ import { getLocation } from "@/lib/campus";
 import { greeting, remainingLabel } from "@/lib/utils";
 import type { NotificationItem, StatsPayload, Ticket } from "@/lib/types";
 import type { SessionUser } from "@/lib/session";
+import { useUser } from "@/components/auth/guards";
 import { can, canAny, operationalScopeParam } from "@/lib/rbac";
+
+function settled<T>(result: PromiseSettledResult<T>, fallback: T): T {
+  return result.status === "fulfilled" ? result.value : fallback;
+}
 
 function dashboardCopy(role: SessionUser["role"]) {
   if (role === "STUDENT") {
@@ -50,54 +55,61 @@ function dashboardCopy(role: SessionUser["role"]) {
 }
 
 export default function OverviewPage() {
-  const [me, setMe] = useState<SessionUser | null>(null);
+  const me = useUser();
   const [mineTickets, setMineTickets] = useState<Ticket[]>([]);
   const [mineTotal, setMineTotal] = useState(0);
   const [opsTickets, setOpsTickets] = useState<Ticket[]>([]);
   const [opsTotal, setOpsTotal] = useState(0);
-  const [stats, setStats] = useState<StatsPayload | null>(null);
+  const [stats, setStats] = useState<Pick<StatsPayload, "totals" | "byStatus"> | null>(null);
   const [notes, setNotes] = useState<NotificationItem[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    if (!me) return;
     let active = true;
-    api<{ user: SessionUser }>("/api/auth/me")
-      .then(async (mePayload) => {
-        if (!active) return;
-        const user = mePayload.user;
-        const showStats = canAny(user, ["analytics:view", "analytics:view_department"]);
-        const opsScope = operationalScopeParam(user);
-        const ops = opsScope !== "mine";
-        const [minePayload, opsPayload, statsPayload, notePayload] = await Promise.all([
-          api<{ complaints: Ticket[]; total: number }>("/api/complaints?scope=mine&pageSize=20"),
-          ops
-            ? api<{ complaints: Ticket[]; total: number }>(`/api/complaints?scope=${opsScope}&pageSize=40`)
-            : Promise.resolve({ complaints: [] as Ticket[], total: 0 }),
-          showStats ? api<StatsPayload>("/api/stats") : Promise.resolve(null),
-          api<{ notifications: NotificationItem[] }>("/api/notifications"),
-        ]);
-        if (!active) return;
-        setMe(user);
-        setMineTickets(minePayload.complaints);
-        setMineTotal(minePayload.total);
-        setOpsTickets(ops ? opsPayload.complaints : minePayload.complaints);
-        setOpsTotal(ops ? opsPayload.total : minePayload.total);
-        setStats(statsPayload);
-        setNotes(notePayload.notifications.slice(0, 4));
-        setError("");
-      })
-      .catch((err: Error) => {
-        if (active) setError(err.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    const showStats = canAny(me, ["analytics:view", "analytics:view_department"]);
+    const opsScope = operationalScopeParam(me);
+    const ops = opsScope !== "mine";
+    const emptyTickets = { complaints: [] as Ticket[], total: 0 };
+
+    Promise.allSettled([
+      api<{ complaints: Ticket[]; total: number }>("/api/complaints?scope=mine&pageSize=20"),
+      ops
+        ? api<{ complaints: Ticket[]; total: number }>(`/api/complaints?scope=${opsScope}&pageSize=40`)
+        : Promise.resolve(emptyTickets),
+      showStats
+        ? api<Pick<StatsPayload, "totals" | "byStatus">>("/api/stats?summary=1")
+        : Promise.resolve(null),
+      api<{ notifications: NotificationItem[] }>("/api/notifications"),
+    ]).then(([mineResult, opsResult, statsResult, noteResult]) => {
+      if (!active) return;
+      const minePayload = settled(mineResult, emptyTickets);
+      const opsPayload = settled(opsResult, emptyTickets);
+      setMineTickets(minePayload.complaints);
+      setMineTotal(minePayload.total);
+      setOpsTickets(ops ? opsPayload.complaints : minePayload.complaints);
+      setOpsTotal(ops ? opsPayload.total : minePayload.total);
+      setStats(settled(statsResult, null));
+      setNotes(settled(noteResult, { notifications: [] }).notifications.slice(0, 4));
+      const critical = ops
+        ? [mineResult, opsResult].filter((result) => result.status === "rejected")
+        : [mineResult].filter((result) => result.status === "rejected");
+      setError(
+        critical.length && !minePayload.complaints.length && !opsPayload.complaints.length
+          ? (critical[0] as PromiseRejectedResult).reason instanceof Error
+            ? (critical[0] as PromiseRejectedResult).reason.message
+            : "Unable to load the dashboard."
+          : "",
+      );
+      setLoading(false);
+    });
+
     return () => {
       active = false;
     };
-  }, [retry]);
+  }, [me, retry]);
 
   const mine = useMemo(() => {
     const source = stats ? [] : opsTickets;

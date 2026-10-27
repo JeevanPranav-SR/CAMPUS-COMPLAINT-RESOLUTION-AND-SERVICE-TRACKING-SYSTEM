@@ -15,16 +15,16 @@ import { getLocation } from "@/lib/campus";
 import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rbac";
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
-import type { SessionUser } from "@/lib/session";
+import { useUser } from "@/components/auth/guards";
 
 type Staff = { id: string; name: string; department: string | null; role: string };
 
 export default function TicketDetailPage() {
   const params = useParams<{ id: string }>();
   const toast = useToast();
+  const me = useUser();
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [me, setMe] = useState<SessionUser | null>(null);
   const [note, setNote] = useState("");
   const [comment, setComment] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -36,13 +36,9 @@ export default function TicketDetailPage() {
 
   async function load() {
     try {
-      const [ticketPayload, mePayload] = await Promise.all([
-        api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`),
-        api<{ user: SessionUser }>("/api/auth/me"),
-      ]);
+      const ticketPayload = await api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`);
       setTicket(ticketPayload.complaint);
       setStaff(ticketPayload.staff);
-      setMe(mePayload.user);
       setAssigneeId(ticketPayload.complaint.assigneeId ?? "");
       setError("");
     } catch (err) {
@@ -52,15 +48,11 @@ export default function TicketDetailPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`),
-      api<{ user: SessionUser }>("/api/auth/me"),
-    ])
-      .then(([ticketPayload, mePayload]) => {
+    api<{ complaint: Ticket; staff: Staff[] }>(`/api/complaints/${params.id}`)
+      .then((ticketPayload) => {
         if (!active) return;
         setTicket(ticketPayload.complaint);
         setStaff(ticketPayload.staff);
-        setMe(mePayload.user);
         setAssigneeId(ticketPayload.complaint.assigneeId ?? "");
         setError("");
       })

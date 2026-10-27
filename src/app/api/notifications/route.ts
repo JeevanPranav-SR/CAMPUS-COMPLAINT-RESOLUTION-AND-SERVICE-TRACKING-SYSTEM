@@ -1,18 +1,17 @@
 import { fail, ok } from "@/lib/http";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { syncOverdueSlaNotifications } from "@/lib/notify";
 
 export async function GET() {
   const user = await getSession();
   if (!user) return fail("UNAUTHENTICATED", "Sign in required.", 401);
-  await syncOverdueSlaNotifications();
   const notifications = await prisma.notification.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
-    take: 40,
+    take: 20,
+    select: { id: true, title: true, body: true, read: true, complaintId: true, createdAt: true },
   });
-  const unread = notifications.filter((item) => !item.read).length;
+  const unread = await prisma.notification.count({ where: { userId: user.id, read: false } });
   return ok({ notifications, unread });
 }
 

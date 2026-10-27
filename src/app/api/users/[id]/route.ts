@@ -2,7 +2,7 @@ import { fail, ok, readJson } from "@/lib/http";
 import { writeAudit } from "@/lib/audit";
 import { can } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { getSession, invalidateSession } from "@/lib/session";
 import { ROLES, type Role } from "@/lib/constants";
 import { hashPassword } from "@/lib/auth";
 
@@ -77,5 +77,6 @@ export async function PATCH(request: Request, { params }: Params) {
     });
   }
 
+  invalidateSession(updated.id);
   return ok({ user: updated });
 }

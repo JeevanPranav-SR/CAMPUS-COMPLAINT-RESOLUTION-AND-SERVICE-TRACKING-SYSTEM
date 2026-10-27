@@ -11,8 +11,7 @@ import { api } from "@/lib/client";
 import { getLocation } from "@/lib/campus";
 import { remainingLabel } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
-import type { SessionUser } from "@/lib/session";
-import { ClientGuard } from "@/components/auth/guards";
+import { ClientGuard, useUser } from "@/components/auth/guards";
 import { allowedTransitions, can, canAssign, operationalScopeParam } from "@/lib/rbac";
 import { ACTION_LABELS, ASSIGNABLE_STATUSES, REASON_REQUIRED, STATUS_META, type Status } from "@/lib/constants";
 import { OPS_DEPARTMENTS, departmentName, opsDepartmentOf, routeComplaint, type OpsDepartmentId } from "@/lib/routing";
@@ -36,9 +35,9 @@ function actionLabel(current: Status, next: Status) {
 
 export default function OperationsPage() {
   const toast = useToast();
+  const me = useUser();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [me, setMe] = useState<SessionUser | null>(null);
   const [assignTo, setAssignTo] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [department, setDepartment] = useState<OpsDepartmentId | "">("");
@@ -47,30 +46,27 @@ export default function OperationsPage() {
   const [reload, setReload] = useState(0);
 
   useEffect(() => {
+    if (!me) return;
     let active = true;
-    api<{ user: SessionUser }>("/api/auth/me")
-      .then(async (mePayload) => {
-        const scope = operationalScopeParam(mePayload.user);
-        const [ticketPayload, staffPayload] = await Promise.all([
-          api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`),
-          api<{ staff: Staff[] }>("/api/staff"),
-        ]);
-        if (!active) return;
-        setTickets(ticketPayload.complaints);
-        setStaff(staffPayload.staff);
-        setMe(mePayload.user);
+    const scope = operationalScopeParam(me);
+    Promise.allSettled([
+      api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`),
+      api<{ staff: Staff[] }>("/api/staff"),
+    ]).then(([ticketResult, staffResult]) => {
+      if (!active) return;
+      if (ticketResult.status === "fulfilled") {
+        setTickets(ticketResult.value.complaints);
         setError("");
-      })
-      .catch((err: Error) => {
-        if (active) setError(err instanceof Error ? err.message : "Unable to load operations");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      } else {
+        setError(ticketResult.reason instanceof Error ? ticketResult.reason.message : "Unable to load operations");
+      }
+      setStaff(staffResult.status === "fulfilled" ? staffResult.value.staff : []);
+      setLoading(false);
+    });
     return () => {
       active = false;
     };
-  }, [reload]);
+  }, [me, reload]);
 
   async function act(ticket: Ticket, change: { status?: Status; assigneeId?: string }) {
     let note: string | undefined;

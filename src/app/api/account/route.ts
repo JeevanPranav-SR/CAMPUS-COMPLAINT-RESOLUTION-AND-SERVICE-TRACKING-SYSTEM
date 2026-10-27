@@ -1,7 +1,7 @@
 import { fail, ok, readJson } from "@/lib/http";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createSession, getSession } from "@/lib/session";
+import { createSession, getSession, invalidateSession } from "@/lib/session";
 import { normalizeRole } from "@/lib/constants";
 import { emailConfigured, smsConfigured } from "@/lib/channels";
 
@@ -73,6 +73,7 @@ export async function PATCH(request: Request) {
     },
   });
 
+  invalidateSession(session.id);
   await createSession({
     id: updated.id,
     name: updated.name,

@@ -34,17 +34,53 @@ function weekStart(date: Date) {
   return day.toISOString().slice(0, 10);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const user = await getSession();
   if (!user) return fail("UNAUTHENTICATED", "Sign in required.", 401);
   if (!canAny(user, ["analytics:view", "analytics:view_department"])) {
     return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);
   }
 
-  after(syncOverdueSlaNotifications);
-
   const where = analyticsScope(user);
   if (!where) return fail("FORBIDDEN", "Operational analytics are not available for this role.", 403);
+
+  const summary = new URL(request.url).searchParams.get("summary") === "1";
+  if (summary) {
+    const [byStatusRows, breached] = await Promise.all([
+      prisma.complaint.groupBy({
+        by: ["status"],
+        where,
+        _count: { _all: true },
+      }),
+      prisma.complaint.count({
+        where: {
+          AND: [where, { status: { notIn: ["RESOLVED", "CLOSED", "REJECTED"] }, dueAt: { lt: new Date() } }],
+        },
+      }),
+    ]);
+    const byStatus: Record<string, number> = {};
+    let all = 0;
+    for (const row of byStatusRows) {
+      byStatus[row.status] = row._count._all;
+      all += row._count._all;
+    }
+    const resolved = (byStatus.RESOLVED ?? 0) + (byStatus.CLOSED ?? 0);
+    const rejected = byStatus.REJECTED ?? 0;
+    return ok({
+      totals: {
+        all,
+        open: all - resolved - rejected,
+        resolved,
+        breached,
+        critical: 0,
+        avgResolution: 0,
+        slaCompliance: 0,
+      },
+      byStatus,
+    });
+  }
+
+  after(syncOverdueSlaNotifications);
 
   const complaints = await prisma.complaint.findMany({
     where,

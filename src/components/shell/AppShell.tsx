@@ -104,7 +104,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
     poll(false);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") poll(true);
-    }, 20000);
+    }, 60000);
     return () => {
       active = false;
       window.clearInterval(timer);

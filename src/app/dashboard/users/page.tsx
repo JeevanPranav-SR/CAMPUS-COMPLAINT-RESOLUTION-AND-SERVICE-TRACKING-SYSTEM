@@ -27,8 +27,10 @@ export default function UsersPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
+    setLoading(true);
     try {
       const payload = await api<{ users: ManagedUser[]; roles: Role[] }>("/api/users");
       setUsers(payload.users);
@@ -36,6 +38,8 @@ export default function UsersPage() {
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load users");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -57,7 +61,7 @@ export default function UsersPage() {
   }
 
   if (error) return <ErrorState message={error} onRetry={load} />;
-  if (!users.length && !error) return <Skeleton className="h-96" />;
+  if (loading) return <Skeleton className="h-96" />;
 
   return (
     <ClientGuard permission="user:manage">

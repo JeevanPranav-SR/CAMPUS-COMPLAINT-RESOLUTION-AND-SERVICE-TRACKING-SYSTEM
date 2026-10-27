@@ -46,7 +46,11 @@ export async function notify(input: {
   ]).catch(() => undefined);
 }
 
+let slaSyncAt = 0;
+
 export async function syncOverdueSlaNotifications() {
+  if (Date.now() - slaSyncAt < 60_000) return;
+  slaSyncAt = Date.now();
   const overdue = await prisma.complaint.findMany({
     where: {
       status: { notIn: ["RESOLVED", "CLOSED", "REJECTED"] },

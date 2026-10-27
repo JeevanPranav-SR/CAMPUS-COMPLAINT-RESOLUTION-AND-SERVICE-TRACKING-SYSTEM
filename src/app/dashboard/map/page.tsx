@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ClientGuard } from "@/components/auth/guards";
+import { ClientGuard, useUser } from "@/components/auth/guards";
 import CampusMap from "@/components/map/CampusMap";
 import { Button } from "@/components/ui/button";
 import { Card, ErrorState, PageHeader, Skeleton } from "@/components/ui/card";
@@ -13,12 +13,12 @@ import { CATEGORIES } from "@/lib/constants";
 import { getLocation } from "@/lib/campus";
 import { remainingLabel } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
-import type { SessionUser } from "@/lib/session";
 import { operationalScopeParam } from "@/lib/rbac";
 
 type Filter = "ALL" | "OPEN" | "HIGH" | "OVERDUE" | "RESOLVED";
 
 export default function MapPage() {
+  const me = useUser();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("OPEN");
@@ -28,16 +28,15 @@ export default function MapPage() {
   const [now, setNow] = useState(0);
 
   useEffect(() => {
+    if (!me) return;
     let active = true;
-    api<{ user: SessionUser }>("/api/auth/me")
-      .then((payload) => {
-        const scope = operationalScopeParam(payload.user);
-        return api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`);
-      })
+    const scope = operationalScopeParam(me);
+    api<{ complaints: Ticket[] }>(`/api/complaints?pageSize=100&scope=${scope}`)
       .then((payload) => {
         if (!active) return;
         setTickets(payload.complaints);
         setNow(Date.now());
+        setError("");
       })
       .catch((err: Error) => {
         if (active) setError(err.message);
@@ -48,7 +47,7 @@ export default function MapPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [me]);
 
   const visible = useMemo(() => {
     return tickets.filter((ticket) => {
