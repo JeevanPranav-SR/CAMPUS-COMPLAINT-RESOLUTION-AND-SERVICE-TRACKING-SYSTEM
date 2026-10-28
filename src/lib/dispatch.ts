@@ -75,7 +75,11 @@ export async function rankTechnicians(input: {
   const department = routeComplaint(input.category, input.locationId);
   const difficulty = difficultyOf(input.priority, input.description);
   const technicians = await prisma.user.findMany({
-    where: { active: true, role: { in: roleValues("TECHNICIAN") } },
+    where: {
+      active: true,
+      role: { in: roleValues("TECHNICIAN") },
+      department: departmentName(department),
+    },
     select: {
       id: true,
       name: true,

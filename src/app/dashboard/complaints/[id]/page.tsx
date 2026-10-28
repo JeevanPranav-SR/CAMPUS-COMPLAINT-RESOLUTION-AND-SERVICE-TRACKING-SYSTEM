@@ -10,13 +10,13 @@ import { PriorityBadge, StatusBadge } from "@/components/ui/badges";
 import { useToast } from "@/components/ui/toast";
 import { api } from "@/lib/client";
 import { ACTION_LABELS, ASSIGNABLE_STATUSES, CATEGORIES, LIFECYCLE, normalizeRole, REASON_REQUIRED, ROLE_META, STATUS_META, type Status } from "@/lib/constants";
-import { departmentName, routeComplaint } from "@/lib/routing";
+import { departmentName, opsDepartmentOf, routeComplaint } from "@/lib/routing";
 import { getLocation } from "@/lib/campus";
 import { allowedTransitions, canAssign, canUpdateWork, isOwner } from "@/lib/rbac";
 import { formatDateTime, remainingLabel, slaState } from "@/lib/utils";
 import type { Ticket } from "@/lib/types";
 import { useUser } from "@/components/auth/guards";
-import { staffOptionLabel } from "@/lib/specialties";
+import { groupStaffBySpecialty, staffForTicket, staffOptionLabel } from "@/lib/specialties";
 
 type Staff = { id: string; name: string; department: string | null; role: string; specialty?: string | null; experienceYears?: number };
 
@@ -147,6 +147,15 @@ export default function TicketDetailPage() {
   const owner = isOwner(me, ticket);
   const assignable = ASSIGNABLE_STATUSES.includes(ticket.status as Status);
   const opsActions = allowed.filter((status) => !["ASSIGNED", "CLOSED", "REOPENED"].includes(status));
+  const routed = routeComplaint(ticket.category, ticket.locationId);
+  const team = staff.filter((person) => opsDepartmentOf(person.department) === routed || person.id === ticket.assigneeId);
+  const staffChoices = staffForTicket(
+    team.length ? team : staff,
+    ticket.category,
+    routed,
+    `${ticket.title} ${ticket.description ?? ""}`,
+    ticket.assigneeId,
+  );
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -258,10 +267,14 @@ export default function TicketDetailPage() {
                 <div className="flex gap-2">
                   <Select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} aria-label="Technician">
                     <option value="">Select technician</option>
-                    {staff.map((person) => (
-                      <option key={person.id} value={person.id}>
-                        {staffOptionLabel(person)} · {person.department}
-                      </option>
+                    {groupStaffBySpecialty(staffChoices).map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.members.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {staffOptionLabel(person)}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </Select>
                   <Button size="sm" className="shrink-0" disabled={busy || !assigneeId || assigneeId === ticket.assigneeId} onClick={() => update(undefined, assigneeId)}>

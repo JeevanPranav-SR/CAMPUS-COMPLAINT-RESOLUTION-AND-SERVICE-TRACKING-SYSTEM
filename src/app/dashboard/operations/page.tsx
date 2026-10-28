@@ -15,7 +15,7 @@ import { ClientGuard, useUser } from "@/components/auth/guards";
 import { allowedTransitions, can, canAssign, operationalScopeParam } from "@/lib/rbac";
 import { ACTION_LABELS, ASSIGNABLE_STATUSES, REASON_REQUIRED, STATUS_META, type Status } from "@/lib/constants";
 import { OPS_DEPARTMENTS, departmentName, opsDepartmentOf, routeComplaint, type OpsDepartmentId } from "@/lib/routing";
-import { staffOptionLabel } from "@/lib/specialties";
+import { groupStaffBySpecialty, staffForTicket, staffOptionLabel } from "@/lib/specialties";
 
 const COLUMNS: { id: string; label: string; match: Status[] }[] = [
   { id: "SUBMITTED", label: STATUS_META.SUBMITTED.label, match: ["SUBMITTED"] },
@@ -185,7 +185,13 @@ export default function OperationsPage() {
                     const team = staff.filter(
                       (person) => opsDepartmentOf(person.department) === routed || person.id === ticket.assigneeId,
                     );
-                    const choices = team.length ? team : staff;
+                    const choices = staffForTicket(
+                      team.length ? team : staff,
+                      ticket.category,
+                      routed,
+                      `${ticket.title} ${ticket.description ?? ""}`,
+                      ticket.assigneeId,
+                    );
                     const selected = assignTo[ticket.id] ?? ticket.assigneeId ?? "";
                     const showAssign = Boolean(me && canAssign(me) && ASSIGNABLE_STATUSES.includes(status));
                     return (
@@ -214,11 +220,15 @@ export default function OperationsPage() {
                               aria-label={`Technician for ${ticket.ticketNo}`}
                             >
                               <option value="">Select technician</option>
-                              {choices.map((person) => (
-                                <option key={person.id} value={person.id}>
-                                  {staffOptionLabel(person)}
-                                  {team.length ? "" : ` · ${person.department ?? ""}`}
-                                </option>
+                              {groupStaffBySpecialty(choices).map((group) => (
+                                <optgroup key={group.label} label={group.label}>
+                                  {group.members.map((person) => (
+                                    <option key={person.id} value={person.id}>
+                                      {staffOptionLabel(person)}
+                                      {team.length ? "" : ` · ${person.department ?? ""}`}
+                                    </option>
+                                  ))}
+                                </optgroup>
                               ))}
                             </Select>
                             <Button

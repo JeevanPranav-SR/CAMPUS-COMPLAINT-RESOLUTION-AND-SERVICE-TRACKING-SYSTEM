@@ -13,7 +13,7 @@ export async function GET() {
   const staff = await prisma.user.findMany({
     where: { active: true, role: { in: roleValues("TECHNICIAN") } },
     select: { id: true, name: true, department: true, role: true, specialty: true, experienceYears: true },
-    orderBy: { name: "asc" },
+    orderBy: [{ specialty: "asc" }, { experienceYears: "desc" }, { name: "asc" }],
   });
   const department = opsDepartmentOf(user.department);
   const scoped = can(user, "complaint:view_all")
